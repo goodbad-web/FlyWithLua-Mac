@@ -2,7 +2,7 @@
 //  FlyWithLua Plugin for X-Plane 12
 // ----------------------------------
 
-#define PLUGIN_VERSION_NO "2.8.13"
+#define PLUGIN_VERSION_NO "2.8.14"
 #define PLUGIN_VERSION_BUILD __DATE__ " " __TIME__
 #define PLUGIN_VERSION PLUGIN_VERSION_NO " build " PLUGIN_VERSION_BUILD
 
@@ -173,6 +173,7 @@
  *	v2.8.13 [Added]   do_every_frame_after() callback to run in FlightLoop Phase 1 (after physics processing, thus eliminating 
  *	                  graphic jitter
  *          [Added]   do_every_frame_before() callback to run in FlightLoop Phase 1 (before physics processing)
+ *  v2.8.14 [Added]   UnregisterAccessor() to XPluginStop(void) to prevent a threading violation Thanks Camille
  *
  *  Markus (Teddii):
  *  v2.1.20 [changed] bug fixed in Luahid_open() and Luahid_open_path(), setting last HID device index back if no device was found
@@ -7423,6 +7424,7 @@ PLUGIN_API void XPluginStop(void)
     // This does not work here and not sure why
     // I think after this call fmod is not getting initalized.
     // fmodint::fmod_uninitialize();
+    fmodint::UnRegisterAccessor();
 
     // cleanup sound system
     if (my_context)

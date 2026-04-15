@@ -24,7 +24,7 @@ public:
 
     ~CustomDataRef()
     {
-        unregisterAccessor();
+//        unregisterAccessor();
     }
 
     T get() const

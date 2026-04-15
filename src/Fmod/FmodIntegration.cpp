@@ -697,6 +697,19 @@ void RegisterAccessor()
 }
 
 
+void UnRegisterAccessor()
+{
+    flywithlua_com1_channel_group_mute.unregisterAccessor();
+    flywithlua_com1_channel_group_volume.unregisterAccessor();
+    flywithlua_interior_channel_group_mute.unregisterAccessor();
+    flywithlua_interior_channel_group_volume.unregisterAccessor();
+    flywithlua_ui_channel_group_mute.unregisterAccessor();
+    flywithlua_ui_channel_group_volume.unregisterAccessor();
+    flywithlua_master_channel_group_mute.unregisterAccessor();
+    flywithlua_master_channel_group_volume.unregisterAccessor();
+}
+
+
 int fmod_initialization()
 {
     // Use the X-Plane 12 SDK sound API to get a pointer to the FMOD studio system

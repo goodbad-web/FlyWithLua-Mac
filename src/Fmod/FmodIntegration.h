@@ -29,6 +29,7 @@ int fmod_data_update();
 void deinitFmodSupport();
 void RegisterFmodFunctionsToLua(lua_State* L);
 void RegisterAccessor();
+void UnRegisterAccessor();
 
 } // end namespace fmodint
 
