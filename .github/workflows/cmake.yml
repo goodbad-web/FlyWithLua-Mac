@@ -99,7 +99,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       
-      - uses: actions/upload-artifact/merge@v4
+      - uses: actions/upload-artifact/merge@v6
         with:
           name: binaries
           pattern: binaries-*
@@ -120,7 +120,7 @@ jobs:
         run: rm FlyWithLua/lin_x64/mac_x64.xpl FlyWithLua/lin_x64/mac_arm.xpl
       - name: Did we remove mac_x64.xpl & mac_arm.xpl & win.xpl    
         run: ls -R -l
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: FlyWithLua_NG+_v${{env.FWL_VERSION}}
           path: |
