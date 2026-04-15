@@ -11,7 +11,7 @@ jobs:
   build-lin:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
       - name: Install other dependancies
         run: |
           sudo apt-get update
@@ -31,7 +31,7 @@ jobs:
   build-win:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
       - name: "Windows: Configure environment"
         shell: bash
         run: |
@@ -52,7 +52,7 @@ jobs:
   build-x64-mac:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
       - name: Configure CMake
         working-directory: ${{github.workspace}}/src
         run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
@@ -74,7 +74,7 @@ jobs:
   build-arm-mac:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
       - name: Configure CMake
         working-directory: ${{github.workspace}}/src
         run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_ARM=ON
@@ -97,14 +97,14 @@ jobs:
     needs: [build-lin, build-win, build-x64-mac, build-arm-mac]
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
       
       - uses: actions/upload-artifact/merge@v7
         with:
           name: binaries
           pattern: binaries-*
                 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: binaries
           path: FlyWithLua/lin_x64
