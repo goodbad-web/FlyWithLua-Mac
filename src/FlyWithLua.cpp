@@ -1,11 +1,15 @@
-#include "FlyWithLua.hpp"
 #include "FlyWithLua.h"
+#include "XPLMPlugin.h"
+#include "XPLMUtilities.h"
+#include "FloatingWindows/FLWIntegration.h"
+#include "Fmod/FmodIntegration.h"
 #include <iostream>
 #include <vector>
 #include <string>
 #include <sys/stat.h>
 
 lua_State* L = nullptr;
+// lState is defined in imgui_lua_bindings.cpp
 
 namespace flywithlua {
     lua_State* FWLLua = nullptr;
@@ -39,10 +43,31 @@ namespace flywithlua {
     }
 
     bool ReadAllScriptFiles() {
-        logMsg(logToDevCon, "Scanning for scripts in: " + scriptDir);
-        // In a real implementation, this would iterate files in scriptDir
-        // and call luaL_dofile() on each.
-        return true;
+        logMsg(logToDevCon, "Loading scripts from: " + scriptDir);
+        
+        char fileNames[8192];
+        char* indices[512];
+        int totalFiles;
+        int returnedFiles;
+        
+        if (XPLMGetDirectoryContents(scriptDir.c_str(), 0, fileNames, sizeof(fileNames), indices, 512, &totalFiles, &returnedFiles)) {
+            for (int i = 0; i < returnedFiles; ++i) {
+                std::string fileName = indices[i];
+                // Check for .lua extension
+                if (fileName.length() > 4 && fileName.substr(fileName.length() - 4) == ".lua") {
+                    std::string fullPath = scriptDir + "/" + fileName;
+                    logMsg(logToDevCon, "Loading script: " + fileName);
+                    if (luaL_dofile(FWLLua, fullPath.c_str())) {
+                        logMsg(logToDevCon, "Error loading " + fileName + ": " + lua_tostring(FWLLua, -1));
+                        lua_pop(FWLLua, 1);
+                    }
+                }
+            }
+            return true;
+        } else {
+            logMsg(logToDevCon, "Failed to read directory: " + scriptDir);
+            return false;
+        }
     }
 }
 
@@ -84,6 +109,12 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
         luaL_openlibs(L);
         flywithlua::FWLLua = L;
         flywithlua::LuaIsRunning = true;
+        lState = L;
+        
+        // Initialize modules
+        flwnd::initFloatingWindowSupport();
+        fmodint::fmod_initialization();
+        fmodint::RegisterFmodFunctionsToLua(L);
         
         // Register Swift-based native modules
         register_swift_bridge(L);
@@ -102,8 +133,12 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
 
 PLUGIN_API void XPluginStop(void) {
     if (L) {
+        flwnd::deinitFloatingWindowSupport();
+        fmodint::deinitFmodSupport();
+        
         lua_close(L);
         L = nullptr;
+        lState = nullptr;
         flywithlua::FWLLua = nullptr;
         flywithlua::LuaIsRunning = false;
         XPLMDebugString("FlyWithLua-Mac: Stopped.\n");
