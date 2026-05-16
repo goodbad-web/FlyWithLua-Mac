@@ -1,11 +1,13 @@
 #include "FlyWithLua.h"
 #include "XPLMPlugin.h"
 #include "XPLMUtilities.h"
+#include "XPLMProcessing.h"
 #include "FloatingWindows/FLWIntegration.h"
 #include "Fmod/FmodIntegration.h"
 #include <iostream>
 #include <vector>
 #include <string>
+#include <cstring>
 #include <sys/stat.h>
 
 lua_State* L = nullptr;
