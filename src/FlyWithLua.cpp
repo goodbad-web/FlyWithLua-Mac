@@ -3,6 +3,9 @@
 
 lua_State* L = nullptr;
 
+// Forward declaration of Swift bridge registration
+extern "C" void register_swift_bridge(lua_State* L);
+
 PLUGIN_API int XPluginStart(
 						char *		outName,
 						char *		outSig,
@@ -16,7 +19,11 @@ PLUGIN_API int XPluginStart(
 	L = luaL_newstate();
 	if (L) {
 		luaL_openlibs(L);
-		XPLMDebugString("FlyWithLua-Mac: Lua state initialized.\n");
+		
+		// Register Swift-based native modules
+		register_swift_bridge(L);
+		
+		XPLMDebugString("FlyWithLua-Mac: Lua state and Swift bridge initialized.\n");
 	} else {
 		XPLMDebugString("FlyWithLua-Mac: Failed to initialize Lua state.\n");
 		return 0;
