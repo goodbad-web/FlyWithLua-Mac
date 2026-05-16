@@ -71,6 +71,20 @@ namespace flywithlua {
     }
 }
 
+float FlightLoopCallback(float inElapsedSinceLastCall, float inElapsedTimeSinceLastFlightLoop, int inCounter, void * inRefcon) {
+    if (!flywithlua::LuaIsRunning) return 0.0f;
+
+    // Update FMOD and Floating Windows
+    fmodint::fmod_data_update();
+    flwnd::onFlightLoop();
+
+    // Placeholder for other periodic tasks
+    flywithlua::CopyDataRefsToLua();
+    flywithlua::CopyDataRefsToXPlane();
+
+    return -1.0f; // Run every frame
+}
+
 extern "C" void register_swift_bridge(lua_State* L);
 
 PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
@@ -86,18 +100,16 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
     XPLMGetPluginInfo(XPLMGetMyID(), nullptr, pluginPath, nullptr, nullptr);
     
     // Extract path and set scriptDir
-    // Expected structure: Resources/plugins/FlyWithLua-Mac/mac_arm64/FlyWithLua.xpl
-    // We want: Resources/plugins/FlyWithLua/Scripts
     std::string path(pluginPath);
     size_t lastSep = path.find_last_of("/");
     if (lastSep != std::string::npos) {
-        std::string baseDir = path.substr(0, lastSep); // mac_arm64
+        std::string baseDir = path.substr(0, lastSep);
         lastSep = baseDir.find_last_of("/");
         if (lastSep != std::string::npos) {
-            std::string pluginDir = baseDir.substr(0, lastSep); // FlyWithLua-Mac
+            std::string pluginDir = baseDir.substr(0, lastSep);
             lastSep = pluginDir.find_last_of("/");
              if (lastSep != std::string::npos) {
-                 std::string parentDir = pluginDir.substr(0, lastSep); // plugins
+                 std::string parentDir = pluginDir.substr(0, lastSep);
                  flywithlua::scriptDir = parentDir + "/FlyWithLua/Scripts";
                  flywithlua::quarantineDir = parentDir + "/FlyWithLua/Scripts (Quarantine)";
              }
@@ -119,6 +131,9 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
         // Register Swift-based native modules
         register_swift_bridge(L);
         
+        // Register Flight Loop
+        XPLMRegisterFlightLoopCallback(FlightLoopCallback, -1.0f, nullptr);
+        
         // Initial load
         flywithlua::ReadAllScriptFiles();
         
@@ -133,6 +148,8 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
 
 PLUGIN_API void XPluginStop(void) {
     if (L) {
+        XPLMUnregisterFlightLoopCallback(FlightLoopCallback, nullptr);
+        
         flwnd::deinitFloatingWindowSupport();
         fmodint::deinitFmodSupport();
         
