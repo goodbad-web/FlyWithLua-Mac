@@ -97,25 +97,31 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
     // Enable native paths (UTF-8 /)
     XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
 
-    // Get our plugin path to locate the Scripts folder
+    // Get our plugin path and find the Scripts folder by searching up the directory tree
     char pluginPath[512];
     XPLMGetPluginInfo(XPLMGetMyID(), nullptr, pluginPath, nullptr, nullptr);
     
-    // Extract path and set scriptDir
     std::string path(pluginPath);
-    size_t lastSep = path.find_last_of("/");
-    if (lastSep != std::string::npos) {
-        std::string baseDir = path.substr(0, lastSep);
-        lastSep = baseDir.find_last_of("/");
-        if (lastSep != std::string::npos) {
-            std::string pluginDir = baseDir.substr(0, lastSep);
-            lastSep = pluginDir.find_last_of("/");
-             if (lastSep != std::string::npos) {
-                 std::string parentDir = pluginDir.substr(0, lastSep);
-                 flywithlua::scriptDir = parentDir + "/FlyWithLua/Scripts";
-                 flywithlua::quarantineDir = parentDir + "/FlyWithLua/Scripts (Quarantine)";
-             }
+    std::string currentDir = path.substr(0, path.find_last_of("/"));
+    
+    // Search up to 5 levels for the "Scripts" directory
+    bool foundScripts = false;
+    for (int i = 0; i < 5; ++i) {
+        struct stat st;
+        std::string testPath = currentDir + "/Scripts";
+        if (stat(testPath.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+            flywithlua::scriptDir = testPath;
+            flywithlua::quarantineDir = currentDir + "/Scripts (Quarantine)";
+            foundScripts = true;
+            break;
         }
+        size_t last = currentDir.find_last_of("/");
+        if (last == std::string::npos) break;
+        currentDir = currentDir.substr(0, last);
+    }
+
+    if (!foundScripts) {
+        XPLMDebugString("FlyWithLua-Mac Warning: Could not find Scripts directory relative to plugin.\n");
     }
 
     L = luaL_newstate();
@@ -149,6 +155,25 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
         lua_pushstring(L, (mainDir + "/Modules/").c_str());
         lua_setglobal(L, "MODULES_DIRECTORY");
         
+        // Register Swift-based native modules first so mac_native is available
+        register_swift_bridge(L);
+        
+        // Consolidate initialization: path, aliases, and stubs
+        XPLMDebugString(("FlyWithLua-Mac: Setting package.path to include " + mainDir + "/Modules/?.lua\n").c_str());
+        std::string initScript = 
+            "package.path = package.path .. ';" + mainDir + "/Modules/?.lua';"
+            "get = function(n) return mac_native.get_dataref(n) end "
+            "set = function(n,v) return mac_native.set_dataref(n,v) end "
+            "function hid_open() return nil end "
+            "function add_macro() end "
+            "function create_command() end "
+            "function create_positive_edge_flip() end ";
+            
+        if (luaL_dostring(L, initScript.c_str())) {
+            XPLMDebugString(("FlyWithLua-Mac Lua Init Error: " + std::string(lua_tostring(L, -1)) + "\n").c_str());
+            lua_pop(L, 1);
+        }
+        
         char xplanePath[512];
         XPLMGetSystemPath(xplanePath);
         lua_pushstring(L, xplanePath);
@@ -161,9 +186,6 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
         
         // Load settings
         flywithlua::process_read_ini_file();
-        
-        // Register Swift-based native modules
-        register_swift_bridge(L);
         
         // Register Flight Loop
         XPLMRegisterFlightLoopCallback(FlightLoopCallback, -1.0f, nullptr);
