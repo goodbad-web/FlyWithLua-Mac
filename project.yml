@@ -8,6 +8,26 @@ targets:
     deploymentTarget: "11.0"
     sources:
       - path: src
+        excludes:
+          - "**/*.md"
+          - "**/*.txt"
+          - "**/*.html"
+          - "**/*.png"
+          - "**/*.a"
+          - "**/*.cmake"
+          - "**/CMakeLists.txt"
+          - "**/Makefile"
+          - "**/index.html"
+          - "**/*.png"
+          - "**/*.lua"
+          - "**/*.pas"
+          - "**/*.inl"
+          - "hidapi/linux/**"
+          - "hidapi/windows/**"
+          - "SDK/CHeaders/Wrappers/**"
+          - "**/wsocket.c"
+          - "**/wsocket.h"
+          - "**/compat.c"
     settings:
       base:
         PRODUCT_NAME: FlyWithLua
@@ -15,18 +35,66 @@ targets:
         MACH_O_TYPE: mh_bundle
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_OBJC_BRIDGING_HEADER: src/FlyWithLua-Bridging-Header.h
+        SWIFT_CXX_INTEROP_MODE: default
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - include
+          - include/XPLM
+          - include/Widgets
           - lib/LuaJIT/include
+          - src
+          - src/imgui
+          - src/FloatingWindows
+          - src/third_party/sol2/upstream
         LIBRARY_SEARCH_PATHS:
           - $(inherited)
           - lib/LuaJIT/lib
         OTHER_LDFLAGS:
           - $(inherited)
           - -lluajit
+          - -undefined
+          - dynamic_lookup
         # Universal Binary Support
         ARCHS: $(ARCHS_STANDARD)
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - $(inherited)
+          - APL=1
+          - XPLM200=1
+          - XPLM210=1
+          - XPLM300=1
+          - XPLM301=1
+          - XPLM303=1
+          - XPLM400=1
+          - GL_SILENCE_DEPRECATION=1
+          - luaL_reg=luaL_Reg
+          - LUASOCKET_API=
+        OTHER_CFLAGS:
+          - $(inherited)
+          - -Wno-deprecated-declarations
+          - -Wno-documentation
+          - -Wno-unused-command-line-argument
+          - -Wno-shorten-64-to-32
+        OTHER_CPLUSPLUSFLAGS:
+          - $(inherited)
+          - -Wno-deprecated-declarations
+          - -Wno-documentation
+          - -Wno-unused-command-line-argument
+          - -Wno-invalid-offsetof
+          - -Wno-pessimizing-move
+          - -Wno-braced-scalar-init
+          - -Wno-shorten-64-to-32
+          - -fno-builtin-memset
+          - -fno-builtin-memcpy
+          - -Wno-error
+          - -Wno-comma
+          - -Wno-nontrivial-memaccess
+          - -Wno-nontrivial-memcall
+          - -Wno-unused-variable
+          - -Wno-uninitialized
+          - -Wno-sometimes-uninitialized
+          - -Wno-unused-function
+          - -Wno-unused-but-set-variable
     dependencies:
       - framework: /System/Library/Frameworks/CoreFoundation.framework
         implicit: true

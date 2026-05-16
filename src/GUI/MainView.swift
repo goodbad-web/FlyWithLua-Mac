@@ -111,8 +111,13 @@ struct FooterView: View {
                 // Reload logic
             }) {
                 Label("Reload Scripts", systemImage: "arrow.clockwise")
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .cornerRadius(6)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PlainButtonStyle())
             
             Spacer()
             

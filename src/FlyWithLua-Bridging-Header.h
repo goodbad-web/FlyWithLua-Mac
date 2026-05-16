@@ -13,9 +13,17 @@
 #include "XPLM/XPLMNavigation.h"
 
 // OpenGL Headers (for texture upload)
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <OpenGL/gl.h>
 
 // Lua Headers
-#include <lua.hpp>
+#include "lua.h"
+#include "lualib.h"
+#include "lauxlib.h"
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* FlyWithLua_Bridging_Header_h */

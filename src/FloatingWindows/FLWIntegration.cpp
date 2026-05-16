@@ -400,7 +400,7 @@ int LuaGetFloatingWindowGeometry(lua_State *L) {
     XPLMWindowID window = wnd->getXWindow();
 
     // For VR: gLeft = Width; gTop = Height
-    int gLeft, gTop, gRight,gBottom;
+    int gLeft = 0, gTop = 0, gRight = 0, gBottom = 0;
 
     if (wnd->isVR()) {
         XPLMGetWindowGeometryVR(window, &gLeft, &gTop);
@@ -501,8 +501,6 @@ void LuaSetOnCloseCallback(sol::light<FloatingWindow> fwnd, CallbackProvider con
         if (!flywithlua::LuaIsRunning)  {
             return;
         }
-
-        XPLMWindowID window = fwnd.getXWindow();
 
         auto on_close = on_close_provider();
         if (!on_close) {
@@ -683,7 +681,6 @@ bool FindAndQuarantine (lua_State *L)
   }
 
   int result = 0;
-  int wait = 0;
   lua_Debug debug;
   // 1 here means the function which called the current function.
   if (!lua_getstack(L, 1, &debug)) { /* Oops, panic or something... */ }
@@ -720,8 +717,8 @@ bool FindAndQuarantine (lua_State *L)
 
   flywithlua::LuaIsRunning = false;
   flywithlua::found_bad_function_script = 1;
+  // flywithlua::DebugLua(); // Unreachable after throw
   throw std::logic_error(ScriptName.c_str());
-  flywithlua::DebugLua();
 }
 
 void onFlightLoop() {

@@ -190,8 +190,12 @@ static int impl_##name(lua_State *L) { \
   const float *name = list.data();
 
 #define FLOAT_POINTER_ARG(name) \
-  float i_##name##_value = luaL_checknumber(L, arg++); \
-  float* name = &(i_##name##_value);
+  float i_##name##_value = 0.0f; \
+  float* name = NULL; \
+  if (arg <= max_args) { \
+    i_##name##_value = (float)luaL_checknumber(L, arg++); \
+    name = &(i_##name##_value); \
+  }
 
 #define END_FLOAT_POINTER(name) \
   if (name != NULL) { \
@@ -224,8 +228,12 @@ static int impl_##name(lua_State *L) { \
   const unsigned int name = (unsigned int)luaL_checkinteger(L, arg++);
 
 #define INT_POINTER_ARG(name) \
-  int i_##name##_value = (int)luaL_checkinteger(L, arg++); \
-  int* name = &(i_##name##_value);
+  int i_##name##_value = 0; \
+  int* name = NULL; \
+  if (arg <= max_args) { \
+    i_##name##_value = (int)luaL_checkinteger(L, arg++); \
+    name = &(i_##name##_value); \
+  }
 
 #define END_INT_POINTER(name) \
   if (name != NULL) { \
@@ -234,8 +242,12 @@ static int impl_##name(lua_State *L) { \
   }
 
 #define UINT_POINTER_ARG(name) \
-  unsigned int i_##name##_value = (unsigned int)luaL_checkinteger(L, arg++); \
-  unsigned int* name = &(i_##name##_value);
+  unsigned int i_##name##_value = 0; \
+  unsigned int* name = NULL; \
+  if (arg <= max_args) { \
+    i_##name##_value = (unsigned int)luaL_checkinteger(L, arg++); \
+    name = &(i_##name##_value); \
+  }
 
 #define END_UINT_POINTER(name) \
   if (name != NULL) { \
@@ -244,11 +256,15 @@ static int impl_##name(lua_State *L) { \
   }
 
 #define BOOL_POINTER_ARG(name) \
-  bool i_##name##_value = lua_toboolean(L, arg++); \
-  bool* name = &(i_##name##_value);
+  bool i_##name##_value = false; \
+  bool* name = NULL; \
+  if (arg <= max_args) { \
+    i_##name##_value = lua_toboolean(L, arg++); \
+    name = &(i_##name##_value); \
+  }
 
 #define OPTIONAL_BOOL_POINTER_ARG(name) \
-  bool i_##name##_value; \
+  bool i_##name##_value = false; \
   bool* name = NULL; \
   if (arg <= max_args) { \
     i_##name##_value = lua_toboolean(L, arg++); \

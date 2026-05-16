@@ -15,17 +15,20 @@ fi
 
 cd "$LUAJIT_DIR"
 
-# Clean previous builds
-make clean || true
+export MACOSX_DEPLOYMENT_TARGET=11.0
 
-echo "Building LuaJIT for arm64..."
-make -j$(sysctl -n hw.ncpu) MACOSX_DEPLOYMENT_TARGET=11.0 CFLAGS="-DLUAJIT_ENABLE_GC64" CC="clang -arch arm64"
-mv src/libluajit.a src/libluajit_arm64.a
-
+# Ensure a clean state before starting
 make clean
 
+echo "Building LuaJIT for arm64..."
+# We only need the static library (libluajit.a)
+make -C src -j$(sysctl -n hw.ncpu) CFLAGS="-DLUAJIT_ENABLE_GC64" CC="clang -arch arm64" HOST_CC="clang" libluajit.a
+mv src/libluajit.a src/libluajit_arm64.a
+
+make -C src clean
+
 echo "Building LuaJIT for x86_64..."
-make -j$(sysctl -n hw.ncpu) MACOSX_DEPLOYMENT_TARGET=11.0 CFLAGS="-DLUAJIT_ENABLE_GC64" CC="clang -arch x86_64"
+make -C src -j$(sysctl -n hw.ncpu) CFLAGS="-DLUAJIT_ENABLE_GC64" CC="clang -arch x86_64" HOST_CC="clang" libluajit.a
 mv src/libluajit.a src/libluajit_x86_64.a
 
 echo "Creating Universal Binary..."
