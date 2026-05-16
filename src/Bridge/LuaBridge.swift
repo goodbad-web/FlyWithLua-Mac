@@ -62,6 +62,14 @@ public func l_set_dataref(L: OpaquePointer?) -> Int32 {
     return 0
 }
 
+@_cdecl("l_log_msg")
+public func l_log_msg(L: OpaquePointer?) -> Int32 {
+    guard let cMsg = lua_tolstring(L, 1, nil) else { return 0 }
+    let msg = String(cString: cMsg)
+    XPLMDebugString("FlyWithLua-Mac: " + msg + "\n")
+    return 0
+}
+
 /// Registers the Swift-based module into the Lua state.
 @_cdecl("register_swift_bridge")
 public func register_swift_bridge(L: OpaquePointer?) {
@@ -75,6 +83,10 @@ public func register_swift_bridge(L: OpaquePointer?) {
     // Register set_dataref
     lua_pushcclosure(L, l_set_dataref, 0)
     lua_setfield(L, -2, "set_dataref")
+    
+    // Register log_msg
+    lua_pushcclosure(L, l_log_msg, 0)
+    lua_setfield(L, -2, "log_msg")
     
     // Set as global 'mac_native'
     // LUA_GLOBALSINDEX is -10002 in Lua 5.1/LuaJIT

@@ -164,10 +164,18 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
             "package.path = package.path .. ';" + mainDir + "/Modules/?.lua';"
             "get = function(n) return mac_native.get_dataref(n) end "
             "set = function(n,v) return mac_native.set_dataref(n,v) end "
+            "logMsg = function(s) mac_native.log_msg(s) end "
             "function hid_open() return nil end "
             "function add_macro() end "
             "function create_command() end "
-            "function create_positive_edge_flip() end ";
+            "function create_positive_edge_flip() end "
+            "function create_dataref_table() return {} end "
+            "function define_shared_DataRef(n,t) end "
+            "package.preload['graphics'] = function() return { "
+            "  move_to = function() end, line_to = function() end, "
+            "  draw_string = function() end, set_color = function() end, "
+            "  draw_line = function() end, draw_circle = function() end "
+            "} end ";
             
         if (luaL_dostring(L, initScript.c_str())) {
             XPLMDebugString(("FlyWithLua-Mac Lua Init Error: " + std::string(lua_tostring(L, -1)) + "\n").c_str());
