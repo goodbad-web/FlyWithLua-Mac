@@ -3,6 +3,8 @@ import Foundation
 /// C-compatible Swift functions to be called by Lua.
 /// Uses the signature: int (*lua_CFunction) (lua_State *L)
 
+private var datarefCache: [String: DataRef<Double>] = [:]
+
 @_cdecl("l_get_dataref")
 public func l_get_dataref(L: OpaquePointer?) -> Int32 {
     // Get DataRef name from Lua stack
@@ -11,14 +13,24 @@ public func l_get_dataref(L: OpaquePointer?) -> Int32 {
     }
     let name = String(cString: cName)
     
-    // Find DataRef using our Swift wrapper
-    guard let dr = DataRef<Double>(name) else {
+    // Use cached DataRef or create a new one
+    let dr: DataRef<Double>?
+    if let cached = datarefCache[name] {
+        dr = cached
+    } else {
+        dr = DataRef<Double>(name)
+        if dr != nil {
+            datarefCache[name] = dr
+        }
+    }
+    
+    guard let foundDr = dr else {
         lua_pushnil(L)
         return 1
     }
     
     // Push value back to Lua
-    if let value = dr.value {
+    if let value = foundDr.value {
         lua_pushnumber(L, value)
     } else {
         lua_pushnil(L)
@@ -33,8 +45,18 @@ public func l_set_dataref(L: OpaquePointer?) -> Int32 {
     let name = String(cString: cName)
     let value = lua_tonumber(L, 2)
     
-    if let dr = DataRef<Double>(name) {
-        dr.value = value
+    let dr: DataRef<Double>?
+    if let cached = datarefCache[name] {
+        dr = cached
+    } else {
+        dr = DataRef<Double>(name)
+        if dr != nil {
+            datarefCache[name] = dr
+        }
+    }
+    
+    if let foundDr = dr {
+        foundDr.value = value
     }
     
     return 0

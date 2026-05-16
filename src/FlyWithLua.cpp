@@ -123,10 +123,42 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
         flywithlua::LuaIsRunning = true;
         lState = L;
         
+        // Define essential globals for FlyWithLua.ini
+        lua_pushstring(L, "APL");
+        lua_setglobal(L, "SYSTEM");
+        
+        lua_pushstring(L, "/");
+        lua_setglobal(L, "DIRECTORY_SEPARATOR");
+        
+        lua_pushstring(L, flywithlua::scriptDir.c_str());
+        lua_setglobal(L, "SCRIPT_DIRECTORY");
+        
+        // Derive other paths
+        std::string scriptsStr = flywithlua::scriptDir;
+        size_t lastS = scriptsStr.find_last_of("/");
+        std::string mainDir = (lastS != std::string::npos) ? scriptsStr.substr(0, lastS) : ".";
+        
+        lua_pushstring(L, mainDir.c_str());
+        lua_setglobal(L, "PLUGIN_MAIN_DIRECTORY");
+        
+        lua_pushstring(L, (mainDir + "/Internals/").c_str());
+        lua_setglobal(L, "INTERNALS_DIRECTORY");
+        
+        lua_pushstring(L, (mainDir + "/Modules/").c_str());
+        lua_setglobal(L, "MODULES_DIRECTORY");
+        
+        char xplanePath[512];
+        XPLMGetSystemPath(xplanePath);
+        lua_pushstring(L, xplanePath);
+        lua_setglobal(L, "SYSTEM_DIRECTORY");
+        
         // Initialize modules
         flwnd::initFloatingWindowSupport();
         fmodint::fmod_initialization();
         fmodint::RegisterFmodFunctionsToLua(L);
+        
+        // Load settings
+        flywithlua::process_read_ini_file();
         
         // Register Swift-based native modules
         register_swift_bridge(L);
