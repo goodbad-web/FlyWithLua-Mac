@@ -1,0 +1,34 @@
+name: FlyWithLua-Mac
+options:
+  bundleIdPrefix: com.goodbad-web
+targets:
+  FlyWithLua-Mac:
+    type: bundle
+    platform: macOS
+    deploymentTarget: "11.0"
+    sources:
+      - path: src
+    settings:
+      base:
+        PRODUCT_NAME: FlyWithLua
+        WRAPPER_EXTENSION: xpl
+        MACH_O_TYPE: mh_bundle
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_OBJC_BRIDGING_HEADER: src/FlyWithLua-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - $(inherited)
+          - include
+          - lib/LuaJIT/include
+        LIBRARY_SEARCH_PATHS:
+          - $(inherited)
+          - lib/LuaJIT/lib
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -lluajit
+        # Universal Binary Support
+        ARCHS: $(ARCHS_STANDARD)
+    dependencies:
+      - framework: /System/Library/Frameworks/CoreFoundation.framework
+        implicit: true
+      - framework: /System/Library/Frameworks/Carbon.framework
+        implicit: true
