@@ -12,6 +12,9 @@
 #include "XPLM/XPLMCamera.h"
 #include "XPLM/XPLMNavigation.h"
 
+// OpenGL Headers (for texture upload)
+#include <OpenGL/gl.h>
+
 // Lua Headers
 #include <lua.hpp>
 
