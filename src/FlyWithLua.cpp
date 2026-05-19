@@ -2,6 +2,7 @@
 #include "XPLMPlugin.h"
 #include "XPLMUtilities.h"
 #include "XPLMProcessing.h"
+#include "XPLMDisplay.h"
 #include "FloatingWindows/FLWIntegration.h"
 #include "Fmod/FmodIntegration.h"
 #include <iostream>
@@ -157,13 +158,40 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
         
         // Register Swift-based native modules first so mac_native is available
         register_swift_bridge(L);
+
+        int xplaneVersion = 0;
+        int sdkVersion = 0;
+        int hostId = 0;
+        XPLMGetVersions(&xplaneVersion, &sdkVersion, &hostId);
+        lua_pushinteger(L, xplaneVersion);
+        lua_setglobal(L, "XPLANE_VERSION");
+
+        int screenLeft = 0;
+        int screenTop = 0;
+        int screenRight = 0;
+        int screenBottom = 0;
+        XPLMGetScreenBoundsGlobal(&screenLeft, &screenTop, &screenRight, &screenBottom);
+        const int screenWidth = screenRight - screenLeft;
+        const int screenHeight = screenTop - screenBottom;
+        lua_pushinteger(L, screenWidth);
+        lua_setglobal(L, "SCREEN_WIDTH");
+        lua_pushinteger(L, screenHeight);
+        lua_setglobal(L, "SCREEN_HEIGHT");
+        lua_pushinteger(L, screenHeight);
+        lua_setglobal(L, "SCREEN_HIGHT");
         
         // Consolidate initialization: path, aliases, and stubs
         XPLMDebugString(("FlyWithLua-Mac: Setting package.path to include " + mainDir + "/Modules/?.lua\n").c_str());
         std::string initScript = 
             "package.path = package.path .. ';" + mainDir + "/Modules/?.lua';"
-            "get = function(n) return mac_native.get_dataref(n) end "
-            "set = function(n,v) return mac_native.set_dataref(n,v) end "
+            "get = function(n,index) "
+            "  if index ~= nil then logMsg('array DataRefs are not supported yet: ' .. tostring(n)) end "
+            "  return mac_native.get_dataref(n,index) "
+            "end "
+            "set = function(n,v,index) "
+            "  if index ~= nil then logMsg('array DataRefs are not supported yet: ' .. tostring(n)) end "
+            "  return mac_native.set_dataref(n,v,index) "
+            "end "
             "logMsg = function(s) mac_native.log_msg(s) end "
             "function hid_open() return nil end "
             "function add_macro() end "
@@ -171,6 +199,32 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
             "function create_positive_edge_flip() end "
             "function create_dataref_table() return {} end "
             "function define_shared_DataRef(n,t) end "
+            "local fwl_datarefs = {} "
+            "local globalMeta = getmetatable(_G) or {} "
+            "local previousIndex = globalMeta.__index "
+            "local previousNewIndex = globalMeta.__newindex "
+            "globalMeta.__index = function(t,k) "
+            "  local binding = fwl_datarefs[k] "
+            "  if binding then return get(binding.path,binding.index) end "
+            "  if type(previousIndex) == 'function' then return previousIndex(t,k) end "
+            "  if type(previousIndex) == 'table' then return previousIndex[k] end "
+            "  return nil "
+            "end "
+            "globalMeta.__newindex = function(t,k,v) "
+            "  local binding = fwl_datarefs[k] "
+            "  if binding then "
+            "    if binding.writable then set(binding.path,v,binding.index) "
+            "    else logMsg('DataRef is readonly: ' .. tostring(k)) end "
+            "    return "
+            "  end "
+            "  if type(previousNewIndex) == 'function' then previousNewIndex(t,k,v); return end "
+            "  if type(previousNewIndex) == 'table' then previousNewIndex[k] = v; return end "
+            "  rawset(t,k,v) "
+            "end "
+            "setmetatable(_G, globalMeta) "
+            "function dataref(name, path, mode, index) "
+            "  fwl_datarefs[name] = { path = path, writable = mode == 'writable', index = index } "
+            "end "
             "package.preload['graphics'] = function() return { "
             "  move_to = function() end, line_to = function() end, "
             "  draw_string = function() end, set_color = function() end, "
