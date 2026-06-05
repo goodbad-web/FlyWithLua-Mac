@@ -16,6 +16,15 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+void flywithlua_reload_scripts(void);
+void flywithlua_update_script_count(int count);
+void flywithlua_clear_script_load_failures(void);
+void flywithlua_update_script_load_results(const char* jsonPayload);
+void flywithlua_update_current_altitude(double altitude);
+void flywithlua_update_last_log_message(const char* message);
+void flywithlua_toggle_window(void);
+
 #include <OpenGL/gl.h>
 
 // Lua Headers

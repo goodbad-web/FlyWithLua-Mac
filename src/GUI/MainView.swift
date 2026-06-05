@@ -10,6 +10,8 @@ struct MainView: View {
             StatusCard()
             
             LogView()
+
+            ScriptFailureView()
             
             Spacer()
             
@@ -104,11 +106,59 @@ struct LogView: View {
     }
 }
 
+struct ScriptFailureView: View {
+    @ObservedObject var state = XPUIState.shared
+
+    var body: some View {
+        if state.scriptLoadFailures.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Script Load Failures (\(state.scriptLoadFailures.count))", systemImage: "exclamationmark.triangle.fill")
+                    .font(.headline)
+                    .foregroundColor(.orange)
+
+                Divider()
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(state.scriptLoadFailures) { failure in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(failure.fileName)
+                                    .font(.system(.body, design: .monospaced))
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.primary)
+                                    .lineLimit(2)
+
+                                Text(failure.message)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(4)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(Color.red.opacity(0.08))
+                            .cornerRadius(8)
+                        }
+                    }
+                }
+                .frame(maxHeight: 160)
+            }
+            .padding()
+            .background(Color.primary.opacity(0.05))
+            .cornerRadius(12)
+        }
+    }
+}
+
 struct FooterView: View {
     var body: some View {
         HStack {
             Button(action: {
-                // Reload logic
+                XPUIState.shared.clearScriptLoadFailures()
+                XPUIState.shared.updateScriptCount(0)
+                XPUIState.shared.updateLastLogMessage("Reloading scripts...")
+                flywithlua_reload_scripts()
             }) {
                 Label("Reload Scripts", systemImage: "arrow.clockwise")
                     .padding(.horizontal, 10)

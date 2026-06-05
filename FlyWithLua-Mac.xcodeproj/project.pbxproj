@@ -948,7 +948,7 @@
 			path = luaxml;
 			sourceTree = "<group>";
 		};
-		"TEMP_7CAE178C-9294-446C-A3B1-60637683FF6B" /* Delphi */ = {
+		"TEMP_84DAACB2-409A-4AAB-B3BF-DEC67B9FE638" /* Delphi */ = {
 			isa = PBXGroup;
 			children = (
 			);
@@ -966,6 +966,7 @@
 				946115924D73BC30A989E8C0 /* Resources */,
 				70ED72B55224B260AE63727B /* Frameworks */,
 				558A4EFA171042FFC426C29F /* Embed Frameworks */,
+				651D545DA5C86924A5897E04 /* Remove stale bundle aliases */,
 			);
 			buildRules = (
 			);
@@ -1062,6 +1063,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		651D545DA5C86924A5897E04 /* Remove stale bundle aliases */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Remove stale bundle aliases";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "alias_dir=\"${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/MacOS\"\nif [ -d \"$alias_dir\" ]; then\n  find \"$alias_dir\" -type f -name '*alias*' -delete\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		5F1265D1E4C17F498FC5EDFF /* Sources */ = {

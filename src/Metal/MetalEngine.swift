@@ -25,14 +25,46 @@ public final class MetalEngine {
     /// Creates an offscreen texture for rendering.
     public func makeOffscreenTexture(width: Int, height: Int) -> MTLTexture? {
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .rgba8Unorm,
+            pixelFormat: .bgra8Unorm,
             width: width,
             height: height,
             mipmapped: false
         )
         descriptor.usage = [.renderTarget, .shaderRead]
-        descriptor.storageMode = .shared
+        descriptor.storageMode = .private
         
         return device.makeTexture(descriptor: descriptor)
+    }
+
+    /// Copies a texture on the GPU when the source and destination formats match.
+    public func copyTexture(_ source: MTLTexture, to destination: MTLTexture) -> Bool {
+        guard source.pixelFormat == destination.pixelFormat else {
+            return false
+        }
+        guard source.width == destination.width, source.height == destination.height else {
+            return false
+        }
+        guard let commandBuffer = commandQueue.makeCommandBuffer(),
+              let blitEncoder = commandBuffer.makeBlitCommandEncoder() else {
+            return false
+        }
+
+        let copySize = MTLSize(width: source.width, height: source.height, depth: 1)
+        blitEncoder.copy(
+            from: source,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: copySize,
+            to: destination,
+            destinationSlice: 0,
+            destinationLevel: 0,
+            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+        )
+        blitEncoder.endEncoding()
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+
+        return commandBuffer.status == .completed
     }
 }

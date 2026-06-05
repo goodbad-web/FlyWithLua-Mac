@@ -46,6 +46,7 @@ extern lua_State   *FWLLua;
 
 extern std::string scriptDir;
 extern std::string quarantineDir;
+std::string JoinPath(const std::string& base, const std::string& child);
 extern bool ReadAllScriptFiles();
 extern int found_bad_function_script;
 extern void DebugLua();

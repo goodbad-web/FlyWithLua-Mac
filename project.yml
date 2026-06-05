@@ -100,3 +100,11 @@ targets:
         implicit: true
       - framework: /System/Library/Frameworks/Carbon.framework
         implicit: true
+    postBuildScripts:
+      - name: Remove stale bundle aliases
+        basedOnDependencyAnalysis: false
+        script: |
+          alias_dir="${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/MacOS"
+          if [ -d "$alias_dir" ]; then
+            find "$alias_dir" -type f -name '*alias*' -delete
+          fi

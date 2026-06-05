@@ -669,7 +669,8 @@ void initFloatingWindowSupport() {
 void deinitFloatingWindowSupport() {
     floatingWindows.clear();
     if (!textureIDs.empty()) {
-        glDeleteTextures(textureIDs.size(), textureIDs.data());
+        glDeleteTextures(static_cast<GLsizei>(textureIDs.size()), textureIDs.data());
+        textureIDs.clear();
     }
 }
 
@@ -686,7 +687,7 @@ bool FindAndQuarantine (lua_State *L)
   if (!lua_getstack(L, 1, &debug)) { /* Oops, panic or something... */ }
   if (!lua_getinfo(L, "S", &debug)) { /* Oops, panic again! */ }
 
-  std::ostringstream oss_function_script_path, oss_script_name, oss_script_path_name, oss_quarantine_path_name;
+  std::ostringstream oss_function_script_path, oss_script_name, oss_script_path_name;
   oss_function_script_path << "FlyWithLua Info: Function Script Path From Stack " << debug.short_src;
   std::string ScriptName = debug.short_src;
   const size_t last_slash_idx = ScriptName.find_last_of("/");
@@ -700,8 +701,7 @@ bool FindAndQuarantine (lua_State *L)
   oss_script_path_name << flywithlua::scriptDir << "/" << ScriptName;
   std::string script_path_name = oss_script_path_name.str();
 
-  oss_quarantine_path_name << flywithlua::quarantineDir << ScriptName;
-  std::string quarantine_path_name = oss_quarantine_path_name.str();
+  std::string quarantine_path_name = flywithlua::JoinPath(flywithlua::quarantineDir, ScriptName);
 
   result = rename(script_path_name.c_str(), quarantine_path_name.c_str());
   if (result == 0)

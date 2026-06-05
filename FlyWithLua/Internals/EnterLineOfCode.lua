@@ -52,6 +52,26 @@ function DrawFLyWithLuaInputLine()
 					bubble_y = bubble(20, bubble_y, "function", tostring(n) .. " = " .. tostring(v))
 				elseif type(v) == "table" then
 					bubble_y = bubble(20, bubble_y, "table", tostring(n) .. " = " .. tostring(v))
+					local DREF_name = rawget(v, "refname")
+					if DREF_name ~= nil then
+						local DREF_type = rawget(v, "reftype")
+						local bubble_args = {
+							"DataRef table",
+							"Variable = " .. n,
+							"DataRef = " .. tostring(DREF_name),
+						}
+						if type(DREF_type) == "number" then
+							local DREF_type_label = fwl_dataref_type_label(DREF_type)
+							if DREF_type_label ~= nil then
+								bubble_args[#bubble_args + 1] = "Type = " .. DREF_type_label
+							else
+								bubble_args[#bubble_args + 1] = "Type = unknown"
+							end
+						elseif DREF_type ~= nil then
+							bubble_args[#bubble_args + 1] = "Shared type = " .. tostring(DREF_type)
+						end
+						bubble_y = bubble(20, bubble_y, unpack(bubble_args))
+					end
 				else
 					if type(v) == "number" then
                         bubble_y = bubble(20, bubble_y, "number", n .. " = " .. tostring(v))
@@ -68,45 +88,21 @@ function DrawFLyWithLuaInputLine()
 					local DREF_readonly
 					local DREF_type
 					DREF_name, DREF_index, DREF_readonly, DREF_type = get_DataRef_binding(n)
-					if DREF_type == 1 then
-						bubble_y = bubble(20, bubble_y, 	"DataRef binding",
-															"Variable = " .. n,
-															"DataRef = " .. DREF_name,
-															"Readonly = " .. tostring(DREF_readonly),
-															"Type = integer")
-					elseif DREF_type == 2 then
-						bubble_y = bubble(20, bubble_y, 	"DataRef binding",
-															"Variable = " .. n,
-															"DataRef = " .. DREF_name,
-															"Readonly = " .. tostring(DREF_readonly),
-															"Type = float")
-					elseif DREF_type == 4 then
-						bubble_y = bubble(20, bubble_y, 	"DataRef binding",
-															"Variable = " .. n,
-															"DataRef = " .. DREF_name,
-															"Readonly = " .. tostring(DREF_readonly),
-															"Type = double")
-					elseif DREF_type == 8 then
-						bubble_y = bubble(20, bubble_y, 	"DataRef binding",
-															"Variable = " .. n,
-															"DataRef = " .. DREF_name,
-															"Index = " .. tostring(DREF_index),
-															"Readonly = " .. tostring(DREF_readonly),
-															"Type = float array")
-					elseif DREF_type == 16 then
-						bubble_y = bubble(20, bubble_y, 	"DataRef binding",
-															"Variable = " .. n,
-															"DataRef = " .. DREF_name,
-															"Index = " .. tostring(DREF_index),
-															"Readonly = " .. tostring(DREF_readonly),
-															"Type = integer array")
-					elseif DREF_type == 32 then
-						bubble_y = bubble(20, bubble_y, 	"DataRef binding",
-															"Variable = " .. n,
-															"DataRef = " .. DREF_name,
-															"Index = " .. tostring(DREF_index),
-															"Readonly = " .. tostring(DREF_readonly),
-															"Type = data (string)")
+					local DREF_type_label = fwl_dataref_type_label(DREF_type)
+					if DREF_type_label ~= nil then
+						local bubble_args = {
+							"DataRef binding",
+							"Variable = " .. n,
+							"DataRef = " .. DREF_name,
+							"Readonly = " .. tostring(DREF_readonly),
+							"Type = " .. DREF_type_label
+						}
+						if DREF_index ~= nil then
+							bubble_args[4] = "Index = " .. tostring(DREF_index)
+							bubble_args[5] = "Readonly = " .. tostring(DREF_readonly)
+							bubble_args[6] = "Type = " .. DREF_type_label
+						end
+						bubble_y = bubble(20, bubble_y, unpack(bubble_args))
 					end
 				end
 			end

@@ -114,8 +114,8 @@ function fileCopy(filePathSrc, filePathDest)
 		return false
 	end
 	local numLines = 0
-	for line in io.lines(filePathSrc) do
-		destFile:write(line, "\n")
+	for srcLine in io.lines(filePathSrc) do
+		destFile:write(srcLine, "\n")
 		numLines = numLines + 1
 	end
 	destFile:close()
@@ -268,35 +268,36 @@ function patchLuaScript(scriptFilePath, searchStrings, includeCondition, patchIn
 	local patchMark     = "#jjjLib1.patch[" .. pluginName .. "]#"
 	local patchedLines  = 0
 	local firstLine     = true
-	for line in io.lines(tempFile) do
+	for patchLine in io.lines(tempFile) do
+		local currentLine = patchLine
 		if firstLine then
 			firstLine = false
-			if string.sub(trim(line), 1, 17) == "-- #jjjLib1.patch" then
-				if not string.find(line, patchMark, 3, true) then
-					line = line .. " " .. patchMark
+			if string.sub(trim(currentLine), 1, 17) == "-- #jjjLib1.patch" then
+				if not string.find(currentLine, patchMark, 3, true) then
+					currentLine = currentLine .. " " .. patchMark
 				end
 			else
 				destFile:write("-- " .. patchMark, "\n")
 			end
 		end
-		if string.sub(trim(line), 1, 2) ~= "--" and not string.find(line, patchMark, 1, true) then
-			commentPos = string.find(line, "--", 2, true)
+		if string.sub(trim(currentLine), 1, 2) ~= "--" and not string.find(currentLine, patchMark, 1, true) then
+			commentPos = string.find(currentLine, "--", 2, true)
 			if commentPos then
-				lineNoComment = string.sub(line, 1, commentPos - 1)
-				comment       = trim(string.sub(line, commentPos + 2)) .. " "
+				lineNoComment = string.sub(currentLine, 1, commentPos - 1)
+				comment       = trim(string.sub(currentLine, commentPos + 2)) .. " "
 			else
-				lineNoComment = line
+				lineNoComment = currentLine
 				comment       = ""
 			end
 			for i, search in pairs(searchStrings) do
 				if string.find(lineNoComment, search, 1, true) then
-					line = "if " .. includeCondition .. " then " .. trim(lineNoComment) .. " end -- " .. comment .. patchInfo .. " " .. patchMark
+					currentLine = "if " .. includeCondition .. " then " .. trim(lineNoComment) .. " end -- " .. comment .. patchInfo .. " " .. patchMark
 					patchedLines = patchedLines + 1
 					break
 				end
 			end
 		end
-		destFile:write(line, "\n")
+		destFile:write(currentLine, "\n")
 		numLines = numLines + 1
 	end
 	destFile:close()
@@ -674,12 +675,12 @@ local function loadParamsScope(plId, scope)
 	if not file then
 		return false
 	end
-	for line in file:lines() do
-		pos = string.find(line, "=", 2, true)
+	for prfLine in file:lines() do
+		pos = string.find(prfLine, "=", 2, true)
 		if pos then
-			param = string.sub(line, 1, pos - 1)
-			type  = string.sub(line, pos + 1, pos + 1)
-			value = string.sub(line, pos + 3)
+			param = string.sub(prfLine, 1, pos - 1)
+			type  = string.sub(prfLine, pos + 1, pos + 1)
+			value = string.sub(prfLine, pos + 3)
 			if params[plId][param] then
 				if type == "t" then
 					alert(plId, "ERROR!", "Preferences file .prf is corrupt! (scope = " .. scope .. ") Some preferences are set to default", "white", "Ok")
