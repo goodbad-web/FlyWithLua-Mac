@@ -101,6 +101,14 @@ static int gDrawChunkRef = LUA_NOREF;
 static int gEveryFrameChunkRef = LUA_NOREF;
 static int gOftenChunkRef = LUA_NOREF;
 static int gSometimesChunkRef = LUA_NOREF;
+static int gMouseClickChunkRef = LUA_NOREF;
+static int gMouseWheelChunkRef = LUA_NOREF;
+static XPLMWindowID gMouseEventWindow = nullptr;
+static int gMouseEventWindowLeft = 0;
+static int gMouseEventWindowTop = 0;
+static int gMouseEventWindowRight = 0;
+static int gMouseEventWindowBottom = 0;
+static bool gMouseEventWindowGeometryInitialized = false;
 static float gSometimesAccumulator = 0.0f;
 static int gDiscoveredScriptCount = 0;
 static int gLoadedScriptCount = 0;
@@ -128,6 +136,10 @@ static void RunLuaStringChunk(const std::string& code, const char* context);
 static void InvalidateLuaCallbackChunk(int& chunkRef);
 static void InvalidateAllLuaCallbackChunks();
 static void RunLuaCallbackChunk(const std::string& code, const char* context, int& chunkRef);
+static void UpdateLuaMouseGlobals();
+static void UpdateMouseEventWindowGeometry();
+static bool CreateMouseEventWindow();
+static void DestroyMouseEventWindow();
 static void FlyWithLuaMenuHandler(void*, void*);
 static void FlyWithLuaMacroMenuHandler(void*, void*);
 static bool HasFlyWithLuaScriptExtension(const std::string& fileName);
@@ -880,6 +892,8 @@ static void InvalidateAllLuaCallbackChunks() {
     InvalidateLuaCallbackChunk(gEveryFrameChunkRef);
     InvalidateLuaCallbackChunk(gOftenChunkRef);
     InvalidateLuaCallbackChunk(gSometimesChunkRef);
+    InvalidateLuaCallbackChunk(gMouseClickChunkRef);
+    InvalidateLuaCallbackChunk(gMouseWheelChunkRef);
 }
 
 static void RunLuaCallbackChunk(const std::string& code, const char* context, int& chunkRef) {
@@ -929,6 +943,173 @@ static void RunLuaCallbackChunk(const std::string& code, const char* context, in
         lua_pop(L, 1);
         XPLMDebugString((std::string("FlyWithLua-Mac Lua Error (") + context + "): " + errorMessage + "\n").c_str());
     }
+}
+
+static void UpdateLuaMouseGlobals() {
+    if (!L) {
+        return;
+    }
+
+    int mouseX = 0;
+    int mouseY = 0;
+    int screenWidth = 0;
+    int screenHeight = 0;
+    XPLMGetMouseLocation(&mouseX, &mouseY);
+    XPLMGetScreenSize(&screenWidth, &screenHeight);
+
+    lua_pushinteger(L, mouseX);
+    lua_setglobal(L, "MOUSE_X");
+    lua_pushinteger(L, mouseY);
+    lua_setglobal(L, "MOUSE_Y");
+    lua_pushinteger(L, screenWidth);
+    lua_setglobal(L, "SCREEN_WIDTH");
+    lua_pushinteger(L, screenHeight);
+    lua_setglobal(L, "SCREEN_HIGHT");
+    lua_pushinteger(L, screenHeight);
+    lua_setglobal(L, "SCREEN_HEIGHT");
+}
+
+static bool LuaGlobalBoolean(const char* name) {
+    if (!L) {
+        return false;
+    }
+
+    lua_getglobal(L, name);
+    const bool value = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    return value;
+}
+
+static void MouseEventWindowDraw(XPLMWindowID /*inWindowID*/, void* /*inRefcon*/) {
+}
+
+static void MouseEventWindowKey(XPLMWindowID /*inWindowID*/, char /*inKey*/, XPLMKeyFlags /*inFlags*/,
+                                char /*inVirtualKey*/, void* /*inRefcon*/, int /*losingFocus*/) {
+}
+
+static int MouseEventWindowClick(XPLMWindowID /*inWindowID*/, int /*x*/, int /*y*/,
+                                 XPLMMouseStatus inMouse, void* /*inRefcon*/) {
+    if (!L || !flywithlua::LuaIsRunning) {
+        return 0;
+    }
+
+    UpdateLuaMouseGlobals();
+    lua_pushboolean(L, 0);
+    lua_setglobal(L, "RESUME_MOUSE_CLICK");
+
+    const char* mouseStatus = "up";
+    if (inMouse == xplm_MouseDown) {
+        mouseStatus = "down";
+    } else if (inMouse == xplm_MouseDrag) {
+        mouseStatus = "drag";
+    }
+    lua_pushstring(L, mouseStatus);
+    lua_setglobal(L, "MOUSE_STATUS");
+
+    RunLuaCallbackChunk(gMouseClickCommand, "do_on_mouse_click", gMouseClickChunkRef);
+    return LuaGlobalBoolean("RESUME_MOUSE_CLICK") ? 1 : 0;
+}
+
+static int MouseEventWindowWheel(XPLMWindowID /*inWindowID*/, int /*x*/, int /*y*/, int wheel,
+                                 int clicks, void* /*inRefcon*/) {
+    if (!L || !flywithlua::LuaIsRunning) {
+        return 0;
+    }
+
+    UpdateLuaMouseGlobals();
+    lua_pushboolean(L, 0);
+    lua_setglobal(L, "RESUME_MOUSE_WHEEL");
+    lua_pushinteger(L, wheel);
+    lua_setglobal(L, "MOUSE_WHEEL_NUMBER");
+    lua_pushinteger(L, clicks);
+    lua_setglobal(L, "MOUSE_WHEEL_CLICKS");
+
+    RunLuaCallbackChunk(gMouseWheelCommand, "do_on_mouse_wheel", gMouseWheelChunkRef);
+    return LuaGlobalBoolean("RESUME_MOUSE_WHEEL") ? 1 : 0;
+}
+
+static XPLMCursorStatus MouseEventWindowCursor(XPLMWindowID /*inWindowID*/, int /*x*/, int /*y*/,
+                                               void* /*inRefcon*/) {
+    return xplm_CursorDefault;
+}
+
+static int MouseEventWindowRightClick(XPLMWindowID /*inWindowID*/, int /*x*/, int /*y*/,
+                                      XPLMMouseStatus /*inMouse*/, void* /*inRefcon*/) {
+    return 0;
+}
+
+static void UpdateMouseEventWindowGeometry() {
+    if (!gMouseEventWindow) {
+        return;
+    }
+
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+    XPLMGetScreenBoundsGlobal(&left, &top, &right, &bottom);
+    if (gMouseEventWindowGeometryInitialized &&
+        left == gMouseEventWindowLeft && top == gMouseEventWindowTop &&
+        right == gMouseEventWindowRight && bottom == gMouseEventWindowBottom) {
+        return;
+    }
+
+    XPLMSetWindowGeometry(gMouseEventWindow, left, top, right, bottom);
+    gMouseEventWindowLeft = left;
+    gMouseEventWindowTop = top;
+    gMouseEventWindowRight = right;
+    gMouseEventWindowBottom = bottom;
+    gMouseEventWindowGeometryInitialized = true;
+}
+
+static bool CreateMouseEventWindow() {
+    if (gMouseEventWindow) {
+        return true;
+    }
+
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+    XPLMGetScreenBoundsGlobal(&left, &top, &right, &bottom);
+
+    XPLMCreateWindow_t params{};
+    params.structSize = sizeof(params);
+    params.left = left;
+    params.top = top;
+    params.right = right;
+    params.bottom = bottom;
+    params.visible = 1;
+    params.drawWindowFunc = MouseEventWindowDraw;
+    params.handleMouseClickFunc = MouseEventWindowClick;
+    params.handleKeyFunc = MouseEventWindowKey;
+    params.handleCursorFunc = MouseEventWindowCursor;
+    params.handleMouseWheelFunc = MouseEventWindowWheel;
+    params.handleRightClickFunc = MouseEventWindowRightClick;
+    params.decorateAsFloatingWindow = xplm_WindowDecorationNone;
+    params.layer = xplm_WindowLayerFlightOverlay;
+    params.refcon = nullptr;
+
+    gMouseEventWindow = XPLMCreateWindowEx(&params);
+    if (!gMouseEventWindow) {
+        XPLMDebugString("FlyWithLua-Mac Warning: Could not create the mouse event window.\n");
+        return false;
+    }
+
+    gMouseEventWindowLeft = left;
+    gMouseEventWindowTop = top;
+    gMouseEventWindowRight = right;
+    gMouseEventWindowBottom = bottom;
+    gMouseEventWindowGeometryInitialized = true;
+    return true;
+}
+
+static void DestroyMouseEventWindow() {
+    if (gMouseEventWindow) {
+        XPLMDestroyWindow(gMouseEventWindow);
+        gMouseEventWindow = nullptr;
+    }
+    gMouseEventWindowGeometryInitialized = false;
 }
 
 static bool LuaGraphicsCallAllowed(const char* functionName) {
@@ -1984,6 +2165,7 @@ static int LuaDoOnMouseClickCallback(lua_State* state) {
         return 0;
     }
     gMouseClickCommand.append(lua_tostring(state, 1)).append("\n");
+    InvalidateLuaCallbackChunk(gMouseClickChunkRef);
     return 0;
 }
 
@@ -1992,6 +2174,7 @@ static int LuaDoOnMouseWheelCallback(lua_State* state) {
         return 0;
     }
     gMouseWheelCommand.append(lua_tostring(state, 1)).append("\n");
+    InvalidateLuaCallbackChunk(gMouseWheelChunkRef);
     return 0;
 }
 
@@ -2632,6 +2815,7 @@ namespace flywithlua {
 }
 
 float FlightLoopCallback(float inElapsedSinceLastCall, float inElapsedTimeSinceLastFlightLoop, int inCounter, void * inRefcon) {
+    UpdateMouseEventWindowGeometry();
     if (!flywithlua::LuaIsRunning) return 0.0f;
 
     // Update FMOD and Floating Windows
@@ -2663,23 +2847,7 @@ int FlyWithLuaDrawCallback(XPLMDrawingPhase /*inPhase*/, int /*inIsBefore*/, voi
         return 1;
     }
 
-    int mouseX = 0;
-    int mouseY = 0;
-    int screenWidth = 0;
-    int screenHeight = 0;
-    XPLMGetMouseLocation(&mouseX, &mouseY);
-    XPLMGetScreenSize(&screenWidth, &screenHeight);
-
-    lua_pushinteger(L, mouseX);
-    lua_setglobal(L, "MOUSE_X");
-    lua_pushinteger(L, mouseY);
-    lua_setglobal(L, "MOUSE_Y");
-    lua_pushinteger(L, screenWidth);
-    lua_setglobal(L, "SCREEN_WIDTH");
-    lua_pushinteger(L, screenHeight);
-    lua_setglobal(L, "SCREEN_HIGHT");
-    lua_pushinteger(L, screenHeight);
-    lua_setglobal(L, "SCREEN_HEIGHT");
+    UpdateLuaMouseGlobals();
 
     // Establish the 2D state expected by legacy FlyWithLua drawing scripts.
     XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
@@ -2715,6 +2883,7 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
         return 0;
     }
 
+    CreateMouseEventWindow();
     RegisterFlyWithLuaMenu();
 
     XPLMDebugString("FlyWithLua-Mac: Successfully started and initialized Lua.\n");
@@ -2723,6 +2892,7 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
 }
 
 PLUGIN_API void XPluginStop(void) {
+    DestroyMouseEventWindow();
     if (L) {
         XPLMUnregisterFlightLoopCallback(FlightLoopCallback, nullptr);
         XPLMUnregisterDrawCallback(FlyWithLuaDrawCallback, xplm_Phase_Window, 0, (void*) "FlyWithLua-MacScriptDraw");
