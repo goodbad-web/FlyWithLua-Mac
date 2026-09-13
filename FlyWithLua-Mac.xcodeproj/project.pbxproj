@@ -948,13 +948,6 @@
 			path = luaxml;
 			sourceTree = "<group>";
 		};
-		"TEMP_84DAACB2-409A-4AAB-B3BF-DEC67B9FE638" /* Delphi */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Delphi;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -1207,7 +1200,7 @@
 		0D162E4CC22E33F455E7E6A4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD)";
+				ARCHS = "arm64 x86_64";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				COMBINE_HIDPI_IMAGES = YES;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -1291,7 +1284,7 @@
 		7A25CDFF8AFA3570DE34AD22 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD)";
+				ARCHS = "arm64 x86_64";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				COMBINE_HIDPI_IMAGES = YES;
 				GCC_PREPROCESSOR_DEFINITIONS = (

@@ -12,11 +12,9 @@ DIST_DIR="dist"
 
 echo "Building $PROJECT_NAME ($CONFIGURATION)..."
 
-# Ensure the project is generated
-if [ ! -d "$PROJECT_NAME.xcodeproj" ]; then
-    echo "Xcode project not found. Generating with XcodeGen..."
-    xcodegen generate
-fi
+# project.yml is the source of truth; regenerate the generated project every time.
+echo "Generating Xcode project with XcodeGen..."
+xcodegen generate
 
 # Clean and build using xcodebuild
 xcodebuild clean build \
@@ -24,6 +22,7 @@ xcodebuild clean build \
     -scheme "$TARGET_NAME" \
     -configuration "$CONFIGURATION" \
     -derivedDataPath "build/DerivedData" \
+    ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_IDENTITY="" \
     CODE_SIGNING_REQUIRED=NO
 

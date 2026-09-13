@@ -709,6 +709,96 @@ void UnRegisterAccessor()
     flywithlua_master_channel_group_volume.unregisterAccessor();
 }
 
+static void releaseFmodSounds()
+{
+    for (const FmodSoundsStructure &fmod_sound : FmodSounds) {
+        const int index = fmod_sound.index;
+        if (index < 0 || index >= static_cast<int>(sizeof(fmod_sound_pointer) / sizeof(fmod_sound_pointer[0]))) {
+            continue;
+        }
+
+        if (fmod_sound_pointer[index] != nullptr) {
+            FMOD_Sound_Release(fmod_sound_pointer[index]);
+            fmod_sound_pointer[index] = nullptr;
+        }
+    }
+
+    FmodSounds.clear();
+    fmod_sound_index = 0;
+}
+
+static void releaseCustomChannelGroup(FMOD_CHANNELGROUP *&channelGroup, const char *name)
+{
+    if (channelGroup == nullptr) {
+        return;
+    }
+
+    const FMOD_RESULT result = FMOD_ChannelGroup_Release(channelGroup);
+    if (result != FMOD_OK) {
+        string message = "FlyWithLua Warning: Could not release FMOD channel group " + string(name) + ": " + FMOD_ErrorString(result) + "\n";
+        XPLMDebugString(message.c_str());
+    }
+    channelGroup = nullptr;
+}
+
+static bool attachCustomChannelGroup(const char *name,
+                                     XPLMAudioBus bus,
+                                     FMOD_CHANNELGROUP **customGroup,
+                                     FMOD_CHANNELGROUP **sdkGroup)
+{
+    if (*customGroup != nullptr) {
+        return true;
+    }
+
+    *customGroup = nullptr;
+    *sdkGroup = XPLMGetFMODChannelGroup(bus);
+    if (*sdkGroup == nullptr) {
+        string message = "FlyWithLua Warning: FMOD bus unavailable; disabling FlyWithLua bus " + string(name) + ".\n";
+        XPLMDebugString(message.c_str());
+        return false;
+    }
+
+    FMOD_SYSTEM *sdkGroupSystem = nullptr;
+    FMOD_RESULT result = FMOD_ChannelGroup_GetSystemObject(*sdkGroup, &sdkGroupSystem);
+    if (result != FMOD_OK || sdkGroupSystem == nullptr) {
+        string message = "FlyWithLua Warning: Could not inspect FMOD bus " + string(name) + ": " + FMOD_ErrorString(result) + "\n";
+        XPLMDebugString(message.c_str());
+        *sdkGroup = nullptr;
+        return false;
+    }
+
+    // X-Plane can route radio audio through a separate FMOD system when a
+    // dedicated headset output is selected. FMOD cannot attach groups across
+    // systems, so leave that optional bus disabled instead of passing an
+    // invalid parent to FMOD_ChannelGroup_AddGroup.
+    if (sdkGroupSystem != fmod_system_sdk) {
+        string message = "FlyWithLua Warning: FMOD bus " + string(name) + " belongs to a different FMOD system; disabling this bus.\n";
+        XPLMDebugString(message.c_str());
+        *sdkGroup = nullptr;
+        return false;
+    }
+
+    result = FMOD_System_CreateChannelGroup(fmod_system_sdk, name, customGroup);
+    if (result != FMOD_OK || *customGroup == nullptr) {
+        string message = "FlyWithLua Warning: Could not create FMOD channel group " + string(name) + ": " + FMOD_ErrorString(result) + "\n";
+        XPLMDebugString(message.c_str());
+        *customGroup = nullptr;
+        *sdkGroup = nullptr;
+        return false;
+    }
+
+    result = FMOD_ChannelGroup_AddGroup(*sdkGroup, *customGroup, true, nullptr);
+    if (result != FMOD_OK) {
+        string message = "FlyWithLua Warning: Could not attach FMOD channel group " + string(name) + ": " + FMOD_ErrorString(result) + "\n";
+        XPLMDebugString(message.c_str());
+        FMOD_ChannelGroup_Release(*customGroup);
+        *customGroup = nullptr;
+        *sdkGroup = nullptr;
+        return false;
+    }
+
+    return true;
+}
 
 int fmod_initialization()
 {
@@ -720,57 +810,28 @@ int fmod_initialization()
         return 0;
     }
 
-    try {
-        FMOD_RESULT fwl_result;
-
-        // Get a pointer to the FMOD core system
-        fwl_result = FMOD_Studio_System_GetCoreSystem(XPLMGetFMODStudio(), &fmod_system_sdk);
-        FMODErrorHandler(__FILE__, __LINE__-1, fwl_result);
-
-
-        // Create a custom flywithlua com1 channel
-        fwl_result = FMOD_System_CreateChannelGroup(fmod_system_sdk, "FlyWithLua_Com1_Channel", &flywithlua_com1_channel_group);
-        FMODErrorHandler(__FILE__, __LINE__-1, fwl_result);
-
-        cg_sdk_audio_radio_com1 = XPLMGetFMODChannelGroup(xplm_AudioRadioCom1);
-        fwl_result = FMOD_ChannelGroup_AddGroup(cg_sdk_audio_radio_com1, flywithlua_com1_channel_group, true, nullptr);
-        FMODErrorHandler(__FILE__, __LINE__-1, fwl_result);
-
-
-        // Create a custom flywithlua interior channel
-        fwl_result = FMOD_System_CreateChannelGroup(fmod_system_sdk, "FlyWithLua_Interior_Channel", &flywithlua_interior_channel_group);
-        FMODErrorHandler(__FILE__, __LINE__-1, fwl_result);
-
-        cg_sdk_audio_interior = XPLMGetFMODChannelGroup(xplm_AudioInterior);
-        fwl_result = FMOD_ChannelGroup_AddGroup(cg_sdk_audio_interior, flywithlua_interior_channel_group, true, nullptr);
-        FMODErrorHandler(__FILE__, __LINE__-1, fwl_result);
-
-
-        // Create a custom flywithlua ui channel
-        fwl_result = FMOD_System_CreateChannelGroup(fmod_system_sdk, "FlyWithLua_Ui_Channel", &flywithlua_ui_channel_group);
-        FMODErrorHandler(__FILE__, __LINE__-1, fwl_result);
-
-        cg_sdk_audio_ui = XPLMGetFMODChannelGroup(xplm_AudioUI);
-        fwl_result = FMOD_ChannelGroup_AddGroup(cg_sdk_audio_ui, flywithlua_ui_channel_group, true, nullptr);
-        FMODErrorHandler(__FILE__, __LINE__-1, fwl_result);
-
-
-        // Create a custom flywithlua master channel
-        fwl_result = FMOD_System_CreateChannelGroup(fmod_system_sdk, "FlyWithLua_Master_Channel", &flywithlua_master_channel_group);
-        FMODErrorHandler(__FILE__, __LINE__-1, fwl_result);
-
-        cg_sdk_master = XPLMGetFMODChannelGroup(xplm_Master);
-        fwl_result = FMOD_ChannelGroup_AddGroup(cg_sdk_master, flywithlua_master_channel_group, true, nullptr);
-        FMODErrorHandler(__FILE__, __LINE__-1, fwl_result);
-    }
-    catch (exception const& e)
-    {
-        string fmod_error_msg = "FlyWithLua Error: " + string(e.what()) + "\n";
-        XPLMDebugString(fmod_error_msg.c_str());
-        return 0; // The plugin is failing, so do not execute any further loop
+    // Get a pointer to the FMOD core system. This function is called from the
+    // bank-loaded notification, so the SDK bus handles are now valid.
+    const FMOD_RESULT coreResult = FMOD_Studio_System_GetCoreSystem(fmod_studio_sdk, &fmod_system_sdk);
+    if (coreResult != FMOD_OK || fmod_system_sdk == nullptr) {
+        string message = "FlyWithLua Warning: Could not retrieve the FMOD core system: " + string(FMOD_ErrorString(coreResult)) + "\n";
+        XPLMDebugString(message.c_str());
+        fmod_studio_sdk = nullptr;
+        fmod_system_sdk = nullptr;
+        return 0;
     }
 
-    return 0;
+    attachCustomChannelGroup("FlyWithLua_Com1_Channel", xplm_AudioRadioCom1,
+                             &flywithlua_com1_channel_group, &cg_sdk_audio_radio_com1);
+    attachCustomChannelGroup("FlyWithLua_Interior_Channel", xplm_AudioInterior,
+                             &flywithlua_interior_channel_group, &cg_sdk_audio_interior);
+    attachCustomChannelGroup("FlyWithLua_Ui_Channel", xplm_AudioUI,
+                             &flywithlua_ui_channel_group, &cg_sdk_audio_ui);
+    attachCustomChannelGroup("FlyWithLua_Master_Channel", xplm_Master,
+                             &flywithlua_master_channel_group, &cg_sdk_master);
+
+    XPLMDebugString("FlyWithLua Info: FMOD channel group initialization pass completed after bank load.\n");
+    return 1;
 }
 
 int fmod_uninitialize()
@@ -779,28 +840,21 @@ int fmod_uninitialize()
     sprintf(buf4, "FlyWithLua Info: fmod_uninitialize() FmodSounds.size =  %d\n", int(FmodSounds.size()));
     XPLMDebugString(buf4);
 
-    if (int(FmodSounds.size()) > 0) {
-        sprintf(buf4, "FlyWithLua Info: fmod_uninitialize() if (int(FmodSounds.size()) > 0) FmodSounds.size =  %d\n", int(FmodSounds.size()));
-        XPLMDebugString(buf4);
-        for (int i = 1; i <= int(FmodSounds.size()); ++i) {
-            FMOD_Sound_Release(fmod_sound_pointer[i]);
-        }
-    }
+    releaseFmodSounds();
+
+    // These groups are owned by FlyWithLua. The SDK channel groups are owned
+    // by X-Plane and must only be invalidated locally.
+    releaseCustomChannelGroup(flywithlua_com1_channel_group, "FlyWithLua_Com1_Channel");
+    releaseCustomChannelGroup(flywithlua_interior_channel_group, "FlyWithLua_Interior_Channel");
+    releaseCustomChannelGroup(flywithlua_ui_channel_group, "FlyWithLua_Ui_Channel");
+    releaseCustomChannelGroup(flywithlua_master_channel_group, "FlyWithLua_Master_Channel");
 
     fmod_studio_sdk = nullptr;
     fmod_system_sdk = nullptr;
-    flywithlua_com1_channel_group = nullptr;
-    flywithlua_interior_channel_group = nullptr;
-    flywithlua_ui_channel_group = nullptr;
-    flywithlua_master_channel_group = nullptr;
-
     cg_sdk_audio_radio_com1 = nullptr;
     cg_sdk_audio_interior = nullptr;
     cg_sdk_audio_ui = nullptr;
     cg_sdk_master = nullptr;
-
-    FmodSounds.clear();
-    fmod_sound_index = 0;
 
     sprintf(buf4, "FlyWithLua Info: fmod_uninitialize()  Should be 0 now FmodSounds.size =  %d\n", int(FmodSounds.size()));
     XPLMDebugString(buf4);
@@ -866,16 +920,7 @@ void deinitFmodSupport() {
     char buf3[200];
     sprintf(buf3, "FlyWithLua Info:  deinitFmodSupport() FmodSounds.size =  %d\n", int(FmodSounds.size()));
     XPLMDebugString(buf3);
-    if (int(FmodSounds.size()) > 0) {
-        sprintf(buf3, "FlyWithLua Info: deinitFmodSupport() if (int(FmodSounds.size()) > 0) FmodSounds.size =  %d\n", int(FmodSounds.size()));
-        XPLMDebugString(buf3);
-        for (int i = 1; i <= int(FmodSounds.size()); ++i) {
-            FMOD_Sound_Release(fmod_sound_pointer[i]);
-        }
-    }
-
-    FmodSounds.clear();
-    fmod_sound_index = 0;
+    releaseFmodSounds();
 
     sprintf(buf3, "FlyWithLua Info: deinitFmodSupport()  Should be 0 now FmodSounds.size =  %d\n", int(FmodSounds.size()));
         XPLMDebugString(buf3);

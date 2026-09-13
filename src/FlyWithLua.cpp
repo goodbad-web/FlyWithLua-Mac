@@ -78,7 +78,9 @@ extern "C" void flywithlua_clear_script_load_failures(void);
 extern "C" void flywithlua_update_script_load_results(const char* jsonPayload);
 extern "C" void flywithlua_update_last_log_message(const char* message);
 extern "C" void flywithlua_reload_scripts(void);
-static bool InitializeLuaRuntime(bool initializeFmodCore, bool registerFlightLoop);
+extern "C" int luaopen_socket_core(lua_State* L);
+extern "C" int luaopen_mime_core(lua_State* L);
+static bool InitializeLuaRuntime(bool registerFlightLoop);
 extern "C" void register_swift_bridge(lua_State* L);
 float FlightLoopCallback(float inElapsedSinceLastCall, float inElapsedTimeSinceLastFlightLoop, int inCounter, void * inRefcon);
 int FlyWithLuaDrawCallback(XPLMDrawingPhase inPhase, int inIsBefore, void * inRefcon);
@@ -93,6 +95,28 @@ static void SetDeveloperMode(bool enabled);
 static void SetVerboseLoggingMode(bool enabled);
 static void RefreshFlyWithLuaMacrosMenu();
 static void MarkFlyWithLuaMacrosMenuDirty();
+
+// LuaJIT 2.1 exposes the Lua 5.1 API and does not provide luaL_requiref.
+// Registering the statically linked modules in package.preload gives require()
+// the same resolution path without depending on a platform-specific .so file.
+static bool RegisterLuaBuiltinModule(lua_State* state, const char* moduleName, lua_CFunction openFunction) {
+    lua_getglobal(state, "package");
+    if (!lua_istable(state, -1)) {
+        lua_pop(state, 1);
+        return false;
+    }
+
+    lua_getfield(state, -1, "preload");
+    if (!lua_istable(state, -1)) {
+        lua_pop(state, 2);
+        return false;
+    }
+
+    lua_pushcfunction(state, openFunction);
+    lua_setfield(state, -2, moduleName);
+    lua_pop(state, 2);
+    return true;
+}
 
 static int FlyWithLuaMenuCommandHandler(XPLMCommandRef /*inCommand*/, XPLMCommandPhase inPhase, void * /*inRefcon*/) {
     if (inPhase == xplm_CommandBegin && flywithlua::LuaIsRunning) {
@@ -1043,7 +1067,7 @@ extern "C" void flywithlua_reload_scripts(void) {
     fmodint::deinitFmodSupport();
     ResetLuaRuntimeState();
 
-    if (!InitializeLuaRuntime(false, false)) {
+    if (!InitializeLuaRuntime(false)) {
         XPLMDebugString("FlyWithLua-Mac Warning: Script reload failed.\n");
         flywithlua_update_last_log_message("Script reload failed");
         return;
@@ -1054,7 +1078,7 @@ extern "C" void flywithlua_reload_scripts(void) {
     flywithlua_update_last_log_message("Scripts reloaded");
 }
 
-static bool InitializeLuaRuntime(bool initializeFmodCore, bool registerFlightLoop) {
+static bool InitializeLuaRuntime(bool registerFlightLoop) {
     L = luaL_newstate();
     if (!L) {
         XPLMDebugString("FlyWithLua-Mac: Failed to initialize Lua state.\n");
@@ -1062,6 +1086,12 @@ static bool InitializeLuaRuntime(bool initializeFmodCore, bool registerFlightLoo
     }
 
     luaL_openlibs(L);
+    if (!RegisterLuaBuiltinModule(L, "socket.core", luaopen_socket_core)) {
+        XPLMDebugString("FlyWithLua-Mac Warning: Could not register built-in socket.core module.\n");
+    }
+    if (!RegisterLuaBuiltinModule(L, "mime.core", luaopen_mime_core)) {
+        XPLMDebugString("FlyWithLua-Mac Warning: Could not register built-in mime.core module.\n");
+    }
     flywithlua::FWLLua = L;
     flywithlua::LuaIsRunning = true;
     lState = L;
@@ -1458,9 +1488,6 @@ end
 
     flwnd::initFloatingWindowSupport();
 
-    if (initializeFmodCore) {
-        fmodint::fmod_initialization();
-    }
     fmodint::RegisterFmodFunctionsToLua(L);
 
     flywithlua::process_read_ini_file();
@@ -1637,7 +1664,7 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
         XPLMDebugString("FlyWithLua-Mac Warning: Could not find altitude DataRef.\n");
     }
 
-    if (!InitializeLuaRuntime(true, true)) {
+    if (!InitializeLuaRuntime(true)) {
         return 0;
     }
 
@@ -1655,7 +1682,7 @@ PLUGIN_API void XPluginStop(void) {
         RunLuaStringChunk(gOnExitCommand, "do_on_exit");
         
         flwnd::deinitFloatingWindowSupport();
-        fmodint::deinitFmodSupport();
+        fmodint::fmod_uninitialize();
         UnregisterFlyWithLuaMenu();
         ClearFlyWithLuaCommands();
         flywithlua_update_script_count(0);
@@ -1684,6 +1711,21 @@ PLUGIN_API int XPluginEnable(void) {
     return 1;
 }
 
-PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFrom, int inMsg, void * inParam) {
-    // Handle X-Plane messages
+PLUGIN_API void XPluginReceiveMessage(XPLMPluginID /*inFrom*/, int inMsg, void * /*inParam*/) {
+    switch (inMsg) {
+        case XPLM_MSG_FMOD_BANK_LOADED:
+            // X-Plane's FMOD buses are valid only after the corresponding bank
+            // has been loaded. Initialization is intentionally deferred until
+            // this notification instead of XPluginStart.
+            fmodint::fmod_initialization();
+            break;
+        case XPLM_MSG_FMOD_BANK_UNLOADING:
+            // X-Plane may rebuild the FMOD system during a bank reload. Drop
+            // every handle before that happens so the next BANK_LOADED message
+            // can rebuild the FlyWithLua groups against the new system.
+            fmodint::fmod_uninitialize();
+            break;
+        default:
+            break;
+    }
 }
