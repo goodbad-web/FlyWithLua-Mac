@@ -4,11 +4,19 @@
 module(..., package.seeall);
 
 function create_SMA(axis_number, samples)
-	-- make samples an optional argument
-	samples = samples or 10
-	
-	-- make sure that axis_number is a string
-	axis_number = tostring(axis_number)
+	axis_number = tonumber(axis_number)
+	samples = tonumber(samples) or 10
+	if axis_number == nil or axis_number < 0 or axis_number % 1 ~= 0 then
+		logMsg("SMA_smoother: axis_number must be a non-negative integer")
+		return false
+	end
+	if samples < 1 or samples % 1 ~= 0 then
+		logMsg("SMA_smoother: samples must be a positive integer")
+		return false
+	end
+
+	axis_number = string.format("%d", axis_number)
+	samples = string.format("%d", samples)
 	
 	-- create the code
 	local code = 'dataref("real_axis_' .. axis_number
@@ -29,6 +37,17 @@ function create_SMA(axis_number, samples)
     code = code .. "end\n\n"
     code = code .. 'do_every_frame("calculate_axis_' .. axis_number .. '()")\n'
 	
-	-- execute the code
-	assert(loadstring(code))()
+	-- Compile and execute the generated code without aborting the entire Lua
+	-- runtime when an invalid input or host API error is encountered.
+	local chunk, compile_error = loadstring(code)
+	if not chunk then
+		logMsg("SMA_smoother: unable to compile generated code: " .. tostring(compile_error))
+		return false
+	end
+	local ok, runtime_error = pcall(chunk)
+	if not ok then
+		logMsg("SMA_smoother: generated code failed: " .. tostring(runtime_error))
+		return false
+	end
+	return true
 end

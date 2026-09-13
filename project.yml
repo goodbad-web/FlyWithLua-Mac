@@ -96,6 +96,13 @@ targets:
           - -Wno-sometimes-uninitialized
           - -Wno-unused-function
           - -Wno-unused-but-set-variable
+      configs:
+        Release:
+          # Xcode's default macOS Release setting is -Os. This plugin spends
+          # most of its time in Lua/C++ flight-loop callbacks, so favor
+          # instruction throughput on the Apple Silicon slice.
+          GCC_OPTIMIZATION_LEVEL: "3"
+          DEAD_CODE_STRIPPING: YES
     dependencies:
       - framework: /System/Library/Frameworks/CoreFoundation.framework
         implicit: true

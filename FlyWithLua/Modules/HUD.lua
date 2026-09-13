@@ -25,12 +25,21 @@ local HUD_NAME = "MY_LITTLE_HUD"
 local HUD_COUNTER = 0
 local HUD_MODE_ONLY = true
 
+local function lua_literal(value)
+	return string.format("%q", tostring(value or ""))
+end
+
 function create_element(name, x, y, w, h, r, g, b, a)
+	x = tonumber(x) or 0
+	y = tonumber(y) or 0
+	w = tonumber(w) or HUD_W
+	h = tonumber(h) or HUD_H
+
 	-- set module's global element position
-	HUD_X = HUD_X_MIN + x or HUD_X_MIN
-	HUD_Y = HUD_Y_MIN + y or HUD_Y_MIN
-	HUD_W = w or HUD_W
-	HUD_H = h or HUD_H
+	HUD_X = HUD_X_MIN + x
+	HUD_Y = HUD_Y_MIN + y
+	HUD_W = w
+	HUD_H = h
 	HUD_ELEMENT_NAME = name or "unknown"
 	r = r or 1
 	g = g or 1
@@ -72,10 +81,10 @@ function create_backlight_indicator(x1, y1, x2, y2, condition, r, g, b, a)
 	a = a or 0.5
 	
 	-- position of the indicator
-	x1 = x1 + HUD_X or HUD_X
-	y1 = y1 + HUD_Y or HUD_Y
-	x2 = x2 + x1 or HUD_X + HUD_W
-	y2 = y2 + y1 or HUD_Y + HUD_H
+	x1 = (tonumber(x1) or 0) + HUD_X
+	y1 = (tonumber(y1) or 0) + HUD_Y
+	x2 = x1 + (tonumber(x2) or HUD_W)
+	y2 = y1 + (tonumber(y2) or HUD_H)
 	
 	-- allow relative positions from right or upper screen border
 	if HUD_X_MIN < 0 then
@@ -97,10 +106,10 @@ function create_click_action(x1, y1, x2, y2, action)
 	if not action then return end
 	
 	-- position of the indicator
-	x1 = x1 + HUD_X or HUD_X
-	y1 = y1 + HUD_Y or HUD_Y
-	x2 = x2 + x1 or HUD_X + HUD_W
-	y2 = y2 + y1 or HUD_Y + HUD_H
+	x1 = (tonumber(x1) or 0) + HUD_X
+	y1 = (tonumber(y1) or 0) + HUD_Y
+	x2 = x1 + (tonumber(x2) or HUD_W)
+	y2 = y1 + (tonumber(y2) or HUD_H)
 	
 	-- allow relative positions from right or upper screen border
 	if HUD_X_MIN < 0 then
@@ -122,10 +131,10 @@ function create_wheel_action(x1, y1, x2, y2, action)
 	if not action then return end
 	
 	-- position of the indicator
-	x1 = x1 + HUD_X or HUD_X
-	y1 = y1 + HUD_Y or HUD_Y
-	x2 = x2 + x1 or HUD_X + HUD_W
-	y2 = y2 + y1 or HUD_Y + HUD_H
+	x1 = (tonumber(x1) or 0) + HUD_X
+	y1 = (tonumber(y1) or 0) + HUD_Y
+	x2 = x1 + (tonumber(x2) or HUD_W)
+	y2 = y1 + (tonumber(y2) or HUD_H)
 	
 	-- allow relative positions from right or upper screen border
 	if HUD_X_MIN < 0 then
@@ -147,10 +156,10 @@ function create_click_switch(x1, y1, x2, y2, variable, value, alternative_value)
 	if not variable then return end
 	
 	-- position of the indicator
-	x1 = x1 + HUD_X or HUD_X
-	y1 = y1 + HUD_Y or HUD_Y
-	x2 = x2 + x1 or HUD_X + HUD_W
-	y2 = y2 + y1 or HUD_Y + HUD_H
+	x1 = (tonumber(x1) or 0) + HUD_X
+	y1 = (tonumber(y1) or 0) + HUD_Y
+	x2 = x1 + (tonumber(x2) or HUD_W)
+	y2 = y1 + (tonumber(y2) or HUD_H)
 	
 	-- allow relative positions from right or upper screen border
 	if HUD_X_MIN < 0 then
@@ -180,8 +189,8 @@ function draw_string(x, y, fontsize, text, r, g, b, a)
 	a = a or 1
 
 	-- check coordinates
-	x = x + HUD_X or HUD_X + 2
-	y = y + HUD_Y or HUD_Y + 2
+	x = (tonumber(x) or 2) + HUD_X
+	y = (tonumber(y) or 2) + HUD_Y
 	
 	-- allow relative positions from right or upper screen border
 	if HUD_X_MIN < 0 then
@@ -196,20 +205,20 @@ function draw_string(x, y, fontsize, text, r, g, b, a)
 	
 	-- draw the string depending on fontsize
 	if fontsize == 10 then
-		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_10(" .. x .. ", " .. y .. ', "' .. text .. '")\n'
+		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_10(" .. x .. ", " .. y .. ", " .. lua_literal(text) .. ")\n"
 	elseif fontsize == 12 then
-		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_12(" .. x .. ", " .. y .. ', "' .. text .. '")\n'
+		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_12(" .. x .. ", " .. y .. ", " .. lua_literal(text) .. ")\n"
 	elseif fontsize == 18 then
-		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_18(" .. x .. ", " .. y .. ', "' .. text .. '")\n'
+		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_18(" .. x .. ", " .. y .. ", " .. lua_literal(text) .. ")\n"
 	else
-		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string(" .. x .. ", " .. y .. ', "' .. text .. '")\n'
+		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string(" .. x .. ", " .. y .. ", " .. lua_literal(text) .. ")\n"
 	end
 end
 
 function draw_fstring(x, y, fontsize, text, variables, r, g, b, a)
 	-- check coordinates
-	x = x + HUD_X or HUD_X + 2
-	y = y + HUD_Y or HUD_Y + 2
+	x = (tonumber(x) or 2) + HUD_X
+	y = (tonumber(y) or 2) + HUD_Y
 	
 	-- allow relative positions from right or upper screen border
 	if HUD_X_MIN < 0 then
@@ -226,13 +235,13 @@ function draw_fstring(x, y, fontsize, text, variables, r, g, b, a)
 	
 	-- draw the string depending on fontsize
 	if fontsize == 10 then
-		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_10(" .. x .. ", " .. y .. ', string.format("' .. text .. '", ' .. variables .. '))\n'
+		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_10(" .. x .. ", " .. y .. ", string.format(" .. lua_literal(text) .. ", " .. variables .. "))\n"
 	elseif fontsize == 12 then
-		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_12(" .. x .. ", " .. y .. ', string.format("' .. text .. '", ' .. variables .. '))\n'
+		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_12(" .. x .. ", " .. y .. ", string.format(" .. lua_literal(text) .. ", " .. variables .. "))\n"
 	elseif fontsize == 18 then
-		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_18(" .. x .. ", " .. y .. ', string.format("' .. text .. '", ' .. variables .. '))\n'
+		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string_Helvetica_18(" .. x .. ", " .. y .. ", string.format(" .. lua_literal(text) .. ", " .. variables .. "))\n"
 	else
-		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string(" .. x .. ", " .. y .. ', string.format("' .. text .. '", ' .. variables .. '))\n'
+		DRAW_STRINGS_PHASE = DRAW_STRINGS_PHASE .. "  draw_string(" .. x .. ", " .. y .. ", string.format(" .. lua_literal(text) .. ", " .. variables .. "))\n"
 	end
 end
 
@@ -268,8 +277,13 @@ function begin_HUD(x, y, w, h, name, always)
 end
 
 function end_HUD()
-    local textfile
-    textfile = io.open(SCRIPT_DIRECTORY .. "HUD_module_" .. HUD_NAME .. "_autogen.txt", "w")
+	local generated_path = SCRIPT_DIRECTORY .. "HUD_module_" .. HUD_NAME .. "_autogen.txt"
+	local temporary_path = generated_path .. ".tmp"
+	local textfile, err = io.open(temporary_path, "w")
+	if not textfile then
+		logMsg("HUD: unable to create generated script: " .. tostring(err))
+		return false
+	end
 	textfile:write("-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --\n")
 	textfile:write("-- --   FlyWithLua HUD module automatic generated HUD file, do not edit!   -- --\n")
 	textfile:write("-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --\n\n")
@@ -319,5 +333,11 @@ function end_HUD()
 	textfile:write(string.format('do_on_mouse_wheel("%s_mouse_wheel_events()")\n\n', HUD_NAME))
 	
 	textfile:close()
-	dofile(SCRIPT_DIRECTORY .. "HUD_module_" .. HUD_NAME .. "_autogen.txt")
+	if not os.rename(temporary_path, generated_path) then
+		os.remove(temporary_path)
+		logMsg("HUD: unable to install generated script: " .. generated_path)
+		return false
+	end
+	dofile(generated_path)
+	return true
 end

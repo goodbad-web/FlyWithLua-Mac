@@ -99,7 +99,7 @@ function fileExists(filePath)
 end
 
 function getFileSize(filePath)
-	local file = io.open(filePath, "r")
+	local file = io.open(filePath, "rb")
 	if not file then
 		return false
 	end
@@ -109,23 +109,26 @@ function getFileSize(filePath)
 end
 
 function fileCopy(filePathSrc, filePathDest)
-	local destFile = io.open(filePathDest, "w")
+	local sourceFile = io.open(filePathSrc, "rb")
+	if not sourceFile then
+		return false
+	end
+	local contents = sourceFile:read("*a")
+	sourceFile:close()
+	if contents == nil then
+		return false
+	end
+
+	local destFile = io.open(filePathDest, "wb")
 	if not destFile then
 		return false
 	end
-	local numLines = 0
-	for srcLine in io.lines(filePathSrc) do
-		destFile:write(srcLine, "\n")
-		numLines = numLines + 1
-	end
-	destFile:close()
-	if numLines < 1 then
+	local written = destFile:write(contents)
+	local closed = destFile:close()
+	if not written or closed == false then
 		return false
 	end
-	if math.abs(getFileSize(filePathDest) - getFileSize(filePathSrc)) > numLines*4 then
-		return false
-	end
-	return true
+	return getFileSize(filePathDest) == #contents
 end
 
 function arrayCopy(arrFrom)
@@ -231,7 +234,7 @@ end
 
 -- special functions to patch other Scripts to avoid conflicts (e.g. RTH 4.0)
 function checkPatchLuaScript(scriptFilePath, pluginName)
-	file = io.open(scriptFilePath, "r")
+	local file = io.open(scriptFilePath, "r")
 	if not file then
 		return false
 	end
@@ -256,9 +259,11 @@ function patchLuaScript(scriptFilePath, searchStrings, includeCondition, patchIn
 	if not fileCopy(scriptFilePath, tempFile) then
 		return false
 	end
-	
-	destFile = io.open(scriptFilePath, "w")
+
+	local patchedFile = scriptFilePath .. "_jjjLib_PATCHED"
+	local destFile = io.open(patchedFile, "w")
 	if not destFile then
+		os.remove(tempFile)
 		return false
 	end
 	local numLines      = 0
@@ -268,7 +273,13 @@ function patchLuaScript(scriptFilePath, searchStrings, includeCondition, patchIn
 	local patchMark     = "#jjjLib1.patch[" .. pluginName .. "]#"
 	local patchedLines  = 0
 	local firstLine     = true
-	for patchLine in io.lines(tempFile) do
+	local sourceFile = io.open(tempFile, "r")
+	if not sourceFile then
+		destFile:close()
+		os.remove(patchedFile)
+		return false
+	end
+	for patchLine in sourceFile:lines() do
 		local currentLine = patchLine
 		if firstLine then
 			firstLine = false
@@ -300,16 +311,25 @@ function patchLuaScript(scriptFilePath, searchStrings, includeCondition, patchIn
 		destFile:write(currentLine, "\n")
 		numLines = numLines + 1
 	end
+	sourceFile:close()
 	destFile:close()
 	if patchedLines < 1 then
-		if os.remove(scriptFilePath) then
-			if not os.rename(tempFile, scriptFilePath) then
-				return false
-			end
-		else
+		os.remove(patchedFile)
+		os.remove(tempFile)
+		return 0
+	end
+
+	-- POSIX systems replace atomically. If the platform refuses to rename over
+	-- an existing file, keep the backup available and restore it on failure.
+	if not os.rename(patchedFile, scriptFilePath) then
+		if not os.remove(scriptFilePath) or not os.rename(patchedFile, scriptFilePath) then
+			fileCopy(backupFile, scriptFilePath)
+			os.remove(patchedFile)
+			os.remove(tempFile)
 			return false
 		end
 	end
+	os.remove(tempFile)
 	return patchedLines
 end
 

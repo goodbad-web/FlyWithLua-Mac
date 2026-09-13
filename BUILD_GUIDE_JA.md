@@ -48,6 +48,14 @@ chmod +x scripts/deploy.sh
 ```
 *このスクリプトはUniversal Binaryをビルドし、`dist/` ディレクトリにパッケージングします。*
 
+### M5 Maxでのローカル最適化ビルド
+M5 Max上でXcodeGenからarm64専用のReleaseビルドを作る場合は、次を実行します。
+```bash
+chmod +x scripts/build_m5max.sh
+./scripts/build_m5max.sh
+```
+この経路はC++を`-O3`、Swiftをwhole-module optimizationでビルドし、arm64のプラグイン本体と`default.metallib`の生成も検証します。配布用のarm64+x86_64 Universal Binaryは従来どおり`deploy.sh`を使用してください。
+
 ### Xcodeでの手動ビルド
 1. `FlyWithLua-Mac.xcodeproj` を開きます。
 2. **FlyWithLua-Mac** ターゲットを選択し、デスティネーションとして **Any Mac (Apple Silicon, Intel)** を選択します。

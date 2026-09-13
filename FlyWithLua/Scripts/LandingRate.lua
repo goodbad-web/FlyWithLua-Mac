@@ -46,71 +46,100 @@ lrl_STEERINGDN = 2
 lrl_STANDBY = 3
 
 
-function new_table(tn, samples)
-	-- make samples an optional argument
-	samples = samples or 10
+local function new_table(samples)
+	-- Keep the recorder state local and avoid compiling Lua source during load.
+	samples = math.floor(tonumber(samples) or 10)
+	if samples < 1 then
+		error("LandingRate sample count must be at least 1")
+	end
 
-	-- make sure that tn is a string
-	tn = tostring(tn)
+	local recorder = {
+		capacity = samples,
+		values = {},
+		timestamps = {},
+	}
 
-	-- create the code
-	code = "values_axis_" .. tn .. " = {}\n"
-	code = code .. "ts_axis_" .. tn .. " = {}\n"
-	code = code .. "function init_" .. tn .. "()\n"
-	code = code .. "    values_axis_" .. tn .. " = {}\n"
-	code = code .. "    ts_axis_" .. tn .. " = {}\n"
-	code = code .. "end\n"
-	code = code .. "init_" .. tn .. "()\n"
-	code = code .. "function calcAvg_" .. tn .. "()\n"
-	code = code .. "    local avg = 0\n"
-	code = code .. "    if #values_axis_" .. tn .. " > 0 then\n"
-	code = code .. "        for i = " .. samples .. ", 1, -1 do\n"
-	code = code .. "            avg = avg + (values_axis_" .. tn .. "[i] or 0)\n"
-	code = code .. "        end\n"
-	code = code .. "        avg = avg / #values_axis_" .. tn .. "\n"
-	code = code .. "    end\n"
-	code = code .. "    return avg\n"
-	code = code .. "end\n"
-	code = code .. "function calcDeviation_" .. tn .. "()\n"
-	code = code .. "    local prev\n"
-	code = code .. "    local d = 0\n"
-	code = code .. "    if #values_axis_" .. tn .. " > 0 then\n"
-	code = code .. "        for i = " .. samples .. ", 1, -1 do\n"
-	code = code .. "            if values_axis_" .. tn .. "[i] then\n"
-	code = code .. "                if prev then\n"
-	code = code .. "                    local diff = values_axis_" .. tn .. "[i] - prev\n"
-	code = code .. "                    d = d + diff\n"
-	code = code .. "                end\n"
-	code = code .. "                prev = values_axis_" .. tn .. "[i]\n"
-	code = code .. "            end\n"
-	code = code .. "        end\n"
-	code = code .. "        d = d / (#values_axis_" .. tn .. " - 1)\n"
-	code = code .. "    end\n"
-	code = code .. "    return d\n"
-	code = code .. "end\n"
-	code = code .. "function calcTime_" .. tn .. "()\n"
-	code = code .. "    local d = 0\n"
-	code = code .. "    if #ts_axis_" .. tn .. " > 1 then\n"
-	code = code .. "        d = ts_axis_" .. tn .. "[1] - ts_axis_" .. tn .. "[#ts_axis_" .. tn .. "]\n"
-	code = code .. "    end\n"
-	code = code .. "    return d\n"
-	code = code .. "end\n"
-	code = code .. "function pushValue_" .. tn .. "(value, ts)\n"
-	code = code .. "    ts = ts or os.clock()\n"
-	code = code .. "    for i = " .. samples .. ", 2, -1 do\n"
-	code = code .. "        values_axis_" .. tn .. "[i] = values_axis_" .. tn .. "[i-1]\n"
-	code = code .. "        ts_axis_" .. tn .. "[i] = ts_axis_" .. tn .. "[i-1]\n"
-	code = code .. "    end\n"
-	code = code .. "    values_axis_" .. tn .. "[1] = value\n"
-	code = code .. "    ts_axis_" .. tn .. "[1] = ts\n"
-	code = code .. "end\n"
+	function recorder:reset()
+		self.values = {}
+		self.timestamps = {}
+	end
 
-	-- execute the code
-	assert(loadstring(code))()
+	function recorder:average()
+		local count = #self.values
+		if count == 0 then
+			return 0
+		end
+
+		local average = 0
+		for i = self.capacity, 1, -1 do
+			average = average + (self.values[i] or 0)
+		end
+		return average / count
+	end
+
+	function recorder:deviation()
+		local count = #self.values
+		if count <= 1 then
+			return 0
+		end
+
+		local previous
+		local deviation = 0
+		for i = self.capacity, 1, -1 do
+			local value = self.values[i]
+			if value ~= nil then
+				if previous ~= nil then
+					deviation = deviation + value - previous
+				end
+				previous = value
+			end
+		end
+		return deviation / (count - 1)
+	end
+
+	function recorder:time_span()
+		local count = #self.timestamps
+		if count <= 1 then
+			return 0
+		end
+		return self.timestamps[1] - self.timestamps[count]
+	end
+
+	function recorder:push(value, timestamp)
+		timestamp = timestamp or os.clock()
+		for i = self.capacity, 2, -1 do
+			self.values[i] = self.values[i - 1]
+			self.timestamps[i] = self.timestamps[i - 1]
+		end
+		self.values[1] = value
+		self.timestamps[1] = timestamp
+	end
+
+	return recorder
 end
 
-new_table("lrl_agl", 30)
-new_table("lrl_landingG", 30)
+local lrl_agl_recorder = new_table(30)
+local lrl_landing_g_recorder = new_table(30)
+
+local lrl_supported_font_sizes = {
+	[10] = true,
+	[12] = true,
+	[18] = true,
+}
+if not lrl_supported_font_sizes[lrl_FONTSIZE] then
+	lrl_FONTSIZE = 18
+end
+local lrl_font_name = "Helvetica_" .. lrl_FONTSIZE
+local lrl_draw_font = {
+	[10] = draw_string_Helvetica_10,
+	[12] = draw_string_Helvetica_12,
+	[18] = draw_string_Helvetica_18,
+}
+
+local function lrl_draw_popup_text(x, y, text)
+	local draw = lrl_draw_font[lrl_FONTSIZE] or draw_string_Helvetica_18
+	draw(x, y, text)
+end
 
 lrl_logAnyWheel = lrl_boolOnGroundAny == 1 and true or false
 lrl_logAllWheels = lrl_boolOnGroundAll == 1 and true or false
@@ -143,9 +172,14 @@ function lrl_postLandingRate()
 	end
 	logMsg(string.format("%s Landing Rate: %s", d, s))
 
-	io.output(io.open("LandingRate.log", "a"))
-	io.write(d, ",", PLANE_ICAO, ",", s, "\n")
-	io.close()
+	local file, err = io.open("LandingRate.log", "a")
+	if not file then
+		logMsg("LandingRate: unable to open LandingRate.log: " .. tostring(err))
+		return false
+	end
+	file:write(d, ",", PLANE_ICAO, ",", s, "\n")
+	file:close()
+	return true
 end
 
 --	HOW FLARES ARE GRADED
@@ -197,10 +231,13 @@ function lrl_updateLandingResult()
 
 	-- Calculate the instantaneous average gVS (ground vertical speed)
 	-- from the avg ground level over average time
-	local aglAvg = calcAvg_lrl_agl()
-	local aglTimeslice = calcTime_lrl_agl()
+	local aglAvg = lrl_agl_recorder:average()
+	local aglTimeslice = lrl_agl_recorder:time_span()
 	local aglMidpoint = lrl_agl - aglAvg
-	local gVS = (aglMidpoint / (aglTimeslice / 2)) * 196.85
+	local gVS = 0
+	if aglTimeslice ~= 0 then
+		gVS = (aglMidpoint / (aglTimeslice / 2)) * 196.85
+	end
 	butterball_gVS = gVS
 
 	-- Show debugging information
@@ -216,7 +253,7 @@ function lrl_updateLandingResult()
 		draw_string_Helvetica_18(100, 100,
 			string.format("agl: %.2f  VSI: %d | DisplayOn: %s   lrl_popupState: %d", lrl_agl, lrl_vertfpm,
 				tostring(lrl_logDisplayOn), lrl_popupState))
-		if #values_axis_lrl_agl > 0 then
+		if #lrl_agl_recorder.values > 0 then
 			draw_string_Helvetica_18(100, 80,
 				string.format("aglAvg: %.2f (%+.3fm in %.2fs = %+.2f FPM)", aglAvg, aglMidpoint, aglTimeslice, gVS))
 		else
@@ -231,9 +268,9 @@ function lrl_updateLandingResult()
 	-- If we're in the STANDBY state and we go >15m agl (but not in replay), then
 	--   clear all our agl+lrl_gforce stats (and others), enable the display (but keep it off)
 	if lrl_popupState ~= lrl_ARMED and lrl_agl > 15 and lrl_boolInReplay == 0 then
-		if #values_axis_lrl_agl ~= 0 then -- Reset recorders
-			init_lrl_agl()
-			init_lrl_landingG()
+		if #lrl_agl_recorder.values ~= 0 then -- Reset recorders
+			lrl_agl_recorder:reset()
+			lrl_landing_g_recorder:reset()
 		end
 		lrl_landingRate = nil
 		lrl_landingG = nil
@@ -249,8 +286,8 @@ function lrl_updateLandingResult()
 	-- If the sim is running in the ARMED state, collect our agl and g-force values
 	--if lrl_popupState == lrl_ARMED and lrl_boolSimPaused == 0 then
 	if lrl_boolSimPaused == 0 then
-		pushValue_lrl_agl(lrl_agl, lrl_localtime)
-		pushValue_lrl_landingG(lrl_gforce, lrl_localtime)
+		lrl_agl_recorder:push(lrl_agl, lrl_localtime)
+		lrl_landing_g_recorder:push(lrl_gforce, lrl_localtime)
 	end
 
 	-- If we're below CAT-IIIB height, mark the time and reset float counter to 0
@@ -273,7 +310,7 @@ function lrl_updateLandingResult()
 		-- wing (center) wheels touched down
 		if lrl_landingRate == nil then
 			lrl_landingRate = gVS
-			lrl_landingG = calcAvg_lrl_landingG()
+		lrl_landingG = lrl_landing_g_recorder:average()
 		end
 		lrl_populatePopupStats()
 		lrl_popupState = lrl_LANDED
@@ -382,23 +419,17 @@ function lrl_loopCallback()
 			graphics.set_color(1.0, 1.0, 1.0, 1.0)
 			for x = 0, 2 do
 				if lrl_popupText[x + 1] then
-					local xoffset = (boxWidth - measure_string(lrl_popupText[x + 1], "Helvetica_" .. lrl_FONTSIZE)) * 0.5
-					local code = string.format("draw_string_Helvetica_%d(%f, %f, '%s');\n", lrl_FONTSIZE, xpos + xoffset,
-						ypos + yoffset - (x * yspacing), lrl_popupText[x + 1])
-					assert(loadstring(code))()
+					local xoffset = (boxWidth - measure_string(lrl_popupText[x + 1], lrl_font_name)) * 0.5
+					lrl_draw_popup_text(xpos + xoffset, ypos + yoffset - (x * yspacing), lrl_popupText[x + 1])
 				end
 			end
 
 			graphics.set_color(lrl_evalRating())
 			if os.clock() % 0.5 >= 0.25 then --blink the bottom row of text
 				if lrl_popupText[4] then
-					local xoffset = (boxWidth - measure_string(lrl_popupText[4], "Helvetica_" .. lrl_FONTSIZE)) * 0.5
-					local code = string.format("draw_string_Helvetica_%d(%f, %f, '%s');\n", lrl_FONTSIZE, xpos + xoffset, ypos + 10,
-						lrl_popupText[4])
-					code = code ..
-						string.format("draw_string_Helvetica_%d(%f, %f, '%s');\n", lrl_FONTSIZE, xpos + xoffset + 1, ypos + 10,
-							lrl_popupText[4])
-					assert(loadstring(code))()
+						local xoffset = (boxWidth - measure_string(lrl_popupText[4], lrl_font_name)) * 0.5
+						lrl_draw_popup_text(xpos + xoffset, ypos + 10, lrl_popupText[4])
+						lrl_draw_popup_text(xpos + xoffset + 1, ypos + 10, lrl_popupText[4])
 				end
 			end
 		end
@@ -436,6 +467,7 @@ function lrl_checkForVR()
 	if lrl_vr_enabled == 1 and lrl_vr_enabledDelay == 1 then
 		if lrl_vr_wndObj then
 			float_wnd_destroy(lrl_vr_wndObj)
+			lrl_vr_wndObj = nil
 		end
 
 		lrl_vr_wndObj = float_wnd_create(lrl_FONTSIZE * 17, lrl_FONTSIZE * 5.3, 0, true)
@@ -452,6 +484,7 @@ function lrl_checkForVR()
 	if lrl_vr_enabled == 0 and lrl_vr_disabledDelay == 1 then
 		if lrl_vr_wndObj then
 			float_wnd_destroy(lrl_vr_wndObj)
+			lrl_vr_wndObj = nil
 		end
 		lrl_vr_enabledDelay = 0
 	end

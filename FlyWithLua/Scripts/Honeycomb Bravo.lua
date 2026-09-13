@@ -23,10 +23,159 @@
 -- 1.1.1:	Fixed issue with C172 G1000 Autopilot Altitude knob function.
 --		Add SR22 profile, by Plam55
 
-local bravo = hid_open(10571, 6401)
+HoneycombBravo = HoneycombBravo or {}
 
-function write_log(message)
+local bravo = hid_open(10571, 6401)
+local bravo_axes = nil
+local write_log
+local get_led
+local set_led
+local all_leds_off
+local send_hid_data
+local handle_led_changes
+local exit_handler
+local setMode
+local change_value
+local get_prop_mode
+local reversers_all
+local reverser
+
+function HoneycombBravo.write_log(message)
 	logMsg(os.date('%H:%M:%S ') .. '[Honeycomb Bravo v1.1.1]: ' .. message)
+end
+
+write_log = HoneycombBravo.write_log
+
+function HoneycombBravo.handle_led_changes()
+	if handle_led_changes then
+		handle_led_changes()
+	end
+end
+
+function HoneycombBravo.set_mode(modeString)
+	if setMode then
+		setMode(modeString)
+	end
+end
+
+function HoneycombBravo.change_value(increase)
+	if change_value then
+		change_value(increase)
+	end
+end
+
+function HoneycombBravo.reversers_all(state)
+	if reversers_all then
+		reversers_all(state)
+	end
+end
+
+function HoneycombBravo.reverser(engine, state)
+	if reverser then
+		reverser(engine, state)
+	end
+end
+
+local function reopen_for_axes()
+	if bravo_axes then
+		hid_close(bravo_axes)
+		bravo_axes = nil
+	end
+	bravo_axes = hid_open(10571, 6401)
+	if not bravo_axes then
+		write_log('WARN Unable to reopen Honeycomb Bravo for joystick axes.')
+	end
+end
+
+function HoneycombBravo.handle_exit()
+	if all_leds_off and send_hid_data then
+		all_leds_off()
+		send_hid_data()
+	end
+	if bravo_axes then
+		hid_close(bravo_axes)
+		bravo_axes = nil
+	end
+end
+
+local register_reverser_commands = false
+
+local function register_common_commands()
+	create_command(
+		'HoneycombBravo/mode_ias',
+		'Set autopilot rotary encoder mode to IAS.',
+		'HoneycombBravo.set_mode("IAS")',
+		'',
+		''
+	)
+
+	create_command(
+		'HoneycombBravo/mode_crs',
+		'Set autopilot rotary encoder mode to CRS.',
+		'HoneycombBravo.set_mode("CRS")',
+		'',
+		''
+	)
+
+	create_command(
+		'HoneycombBravo/mode_hdg',
+		'Set autopilot rotary encoder mode to HDG.',
+		'HoneycombBravo.set_mode("HDG")',
+		'',
+		''
+	)
+
+	create_command(
+		'HoneycombBravo/mode_vs',
+		'Set autopilot rotary encoder mode to VS.',
+		'HoneycombBravo.set_mode("VS")',
+		'',
+		''
+	)
+
+	create_command(
+		'HoneycombBravo/mode_alt',
+		'Set autopilot rotary encoder mode to ALT.',
+		'HoneycombBravo.set_mode("ALT")',
+		'',
+		''
+	)
+
+	create_command(
+		'HoneycombBravo/increase',
+		'Increase the value of the autopilot mode selected with the rotary encoder.',
+		'HoneycombBravo.change_value(true)',
+		'',
+		''
+	)
+
+	create_command(
+		'HoneycombBravo/decrease',
+		'Decrease the value of the autopilot mode selected with the rotary encoder.',
+		'HoneycombBravo.change_value(false)',
+		'',
+		''
+	)
+
+	if register_reverser_commands then
+		create_command(
+			'HoneycombBravo/thrust_reversers',
+			'Hold all thrust reversers on.',
+			'HoneycombBravo.reversers_all(true)',
+			'',
+			'HoneycombBravo.reversers_all(false)'
+		)
+
+		for i = 1, 8 do
+			create_command(
+				'HoneycombBravo/thrust_reverser_' .. i,
+				'Hold thrust reverser #' .. i .. ' on.',
+				'HoneycombBravo.reverser(' .. i .. ', true)',
+				'',
+				'HoneycombBravo.reverser(' .. i .. ', false)'
+			)
+		end
+	end
 end
 
 if bravo == nil then
@@ -52,7 +201,7 @@ end
 local bitwise = require 'bit'
 
 -- Helper functions
-function int_to_bool(value)
+local function int_to_bool(value)
 	if value == 0 then
 		return false
 	else
@@ -60,7 +209,7 @@ function int_to_bool(value)
 	end
 end
 
-function get_ap_state(array)
+local function get_ap_state(array)
 	if array[0] >= 1 then
 		return true
 	else
@@ -68,7 +217,7 @@ function get_ap_state(array)
 	end
 end
 
-function array_has_true(array)
+local function array_has_true(array)
 	for i = 0, 7 do
 		if array[i] == 1 then
 			return true
@@ -82,34 +231,64 @@ if PLANE_ICAO == "B738" then
 
 -- ****************************** CONFIGURATION FOR B738 ******************************
 -- LED definitions for B738.
-local LED_FCU_HDG =         {1, 1}
-local LED_FCU_NAV =         {1, 2}
-local LED_FCU_APR =         {1, 3}
-local LED_FCU_REV =         {1, 4}
-local LED_FCU_ALT =         {1, 5}
-local LED_FCU_VS =          {1, 6}
-local LED_FCU_IAS =         {1, 7}
-local LED_FCU_AP =          {1, 8}
-local LED_LDG_L_GREEN =		{2, 1}
-local LED_LDG_L_RED =		{2, 2}
-local LED_LDG_N_GREEN =		{2, 3}
-local LED_LDG_N_RED =		{2, 4}
-local LED_LDG_R_GREEN =		{2, 5}
-local LED_LDG_R_RED =		{2, 6}
-local LED_ANC_MSTR_WARNG =	{2, 7}
-local LED_ANC_ENG_FIRE =	{2, 8}
-local LED_ANC_OIL =         {3, 1}
-local LED_ANC_FUEL =		{3, 2}
-local LED_ANC_ANTI_ICE =	{3, 3}
-local LED_ANC_STARTER =		{3, 4}
-local LED_ANC_APU =         {3, 5}
-local LED_ANC_MSTR_CTN =	{3, 6}
-local LED_ANC_VACUUM =		{3, 7}
-local LED_ANC_HYD =         {3, 8}
-local LED_ANC_AUX_FUEL =	{4, 1}
-local LED_ANC_PRK_BRK =		{4, 2}
-local LED_ANC_VOLTS =		{4, 3}
-local LED_ANC_DOOR =		{4, 4}
+local b738 = {
+	LED_FCU_HDG = {1, 1},
+	LED_FCU_NAV = {1, 2},
+	LED_FCU_APR = {1, 3},
+	LED_FCU_REV = {1, 4},
+	LED_FCU_ALT = {1, 5},
+	LED_FCU_VS = {1, 6},
+	LED_FCU_IAS = {1, 7},
+	LED_FCU_AP = {1, 8},
+	LED_LDG_L_GREEN = {2, 1},
+	LED_LDG_L_RED = {2, 2},
+	LED_LDG_N_GREEN = {2, 3},
+	LED_LDG_N_RED = {2, 4},
+	LED_LDG_R_GREEN = {2, 5},
+	LED_LDG_R_RED = {2, 6},
+	LED_ANC_MSTR_WARNG = {2, 7},
+	LED_ANC_ENG_FIRE = {2, 8},
+	LED_ANC_OIL = {3, 1},
+	LED_ANC_FUEL = {3, 2},
+	LED_ANC_ANTI_ICE = {3, 3},
+	LED_ANC_STARTER = {3, 4},
+	LED_ANC_APU = {3, 5},
+	LED_ANC_MSTR_CTN = {3, 6},
+	LED_ANC_VACUUM = {3, 7},
+	LED_ANC_HYD = {3, 8},
+	LED_ANC_AUX_FUEL = {4, 1},
+	LED_ANC_PRK_BRK = {4, 2},
+	LED_ANC_VOLTS = {4, 3},
+	LED_ANC_DOOR = {4, 4},
+
+	bus_voltage = dataref_table('laminar/B738/electric/batbus_status'),
+	hdg = dataref_table('laminar/B738/autopilot/hdg_sel_status'),
+	nav = dataref_table('laminar/B738/autopilot/lnav_status'),
+	apr = dataref_table('laminar/B738/autopilot/app_status'),
+	rev = dataref_table('laminar/B738/autopilot/vnav_status1'),
+	alt = dataref_table('laminar/B738/autopilot/alt_hld_status'),
+	vs = dataref_table('laminar/B738/autopilot/vs_status'),
+	ias = dataref_table('laminar/B738/autopilot/speed_status1'),
+	ap = dataref_table('laminar/B738/autopilot/cmd_a_status'),
+	gear = dataref_table('sim/flightmodel2/gear/deploy_ratio'),
+	master_warn = dataref_table('sim/cockpit2/annunciators/master_warning'),
+	fire = dataref_table('laminar/B738/annunciator/six_pack_fire'),
+	oil_low_p = dataref_table('sim/cockpit2/annunciators/oil_pressure_low'),
+	fuel_low_p = dataref_table('laminar/B738/annunciator/six_pack_fuel'),
+	anti_ice = dataref_table('laminar/B738/annunciator/six_pack_ice'),
+	starter = dataref_table('sim/cockpit2/engine/actuators/starter_hit'),
+	apu = dataref_table('sim/cockpit/engine/APU_running'),
+	master_caution = dataref_table('laminar/B738/annunciator/master_caution_light'),
+	vacuum = dataref_table('sim/cockpit2/annunciators/low_vacuum'),
+	hydro_low_p = dataref_table('laminar/B738/annunciator/six_pack_hyd'),
+	aux_fuel_pump_l = dataref_table('sim/cockpit2/fuel/transfer_pump_left'),
+	aux_fuel_pump_r = dataref_table('sim/cockpit2/fuel/transfer_pump_right'),
+	parking_brake = dataref_table('laminar/B738/annunciator/parking_brake'),
+	volt_low = dataref_table('sim/cockpit2/annunciators/low_voltage'),
+	canopy = dataref_table('sim/flightmodel2/misc/canopy_open_ratio'),
+	doors = dataref_table('laminar/B738/annunciator/six_pack_doors'),
+	cabin_door = dataref_table('laminar/B738/toggle_switch/flt_dk_door')
+}
 
 -- Support variables & functions for sending LED data via HID
 
@@ -167,83 +346,44 @@ local LED_ANC_DOOR =		{4, 4}
 	-- Initialize our default state
 	all_leds_off()
 	send_hid_data()
-	hid_open(10571, 6401) -- MacOS Bravo must be reopened for .joy axes to operate
-
-	-- Change LEDs when their underlying dataref changes
-	-- Bus voltage as a master LED switch
-	local bus_voltage = dataref_table('laminar/B738/electric/batbus_status')
-
-    -- Datarefs configuration for B738.
-
-	-- Autopilot
-	local hdg = dataref_table('laminar/B738/autopilot/hdg_sel_status')
-	local nav = dataref_table('laminar/B738/autopilot/lnav_status')
-	local apr = dataref_table('laminar/B738/autopilot/app_status')
-	local rev = dataref_table('laminar/B738/autopilot/vnav_status1')
-	local alt = dataref_table('laminar/B738/autopilot/alt_hld_status')
-	local vs = dataref_table('laminar/B738/autopilot/vs_status')
-	local ias = dataref_table('laminar/B738/autopilot/speed_status1')
-	local ap = dataref_table('laminar/B738/autopilot/cmd_a_status')
-
-	-- Landing gear LEDs
-	local gear = dataref_table('sim/flightmodel2/gear/deploy_ratio')
-
-	-- Annunciator panel - top row
-	local master_warn = dataref_table('sim/cockpit2/annunciators/master_warning')
-	local fire = dataref_table('laminar/B738/annunciator/six_pack_fire')
-	local oil_low_p = dataref_table('sim/cockpit2/annunciators/oil_pressure_low')
-	local fuel_low_p = dataref_table('laminar/B738/annunciator/six_pack_fuel')
-	local anti_ice = dataref_table('laminar/B738/annunciator/six_pack_ice')
-	local starter = dataref_table('sim/cockpit2/engine/actuators/starter_hit')
-	local apu = dataref_table('sim/cockpit/engine/APU_running')
-
-	-- Annunciator panel - bottom row
-	local master_caution = dataref_table('laminar/B738/annunciator/master_caution_light')
-	local vacuum = dataref_table('sim/cockpit2/annunciators/low_vacuum')
-	local hydro_low_p = dataref_table('laminar/B738/annunciator/six_pack_hyd')
-	local aux_fuel_pump_l = dataref_table('sim/cockpit2/fuel/transfer_pump_left')
-	local aux_fuel_pump_r = dataref_table('sim/cockpit2/fuel/transfer_pump_right')
-	local parking_brake = dataref_table('laminar/B738/annunciator/parking_brake')
-	local volt_low = dataref_table('sim/cockpit2/annunciators/low_voltage')
-	local canopy = dataref_table('sim/flightmodel2/misc/canopy_open_ratio')
-	local doors = dataref_table('laminar/B738/annunciator/six_pack_doors')
-	local cabin_door = dataref_table('laminar/B738/toggle_switch/flt_dk_door')
+	reopen_for_axes() -- MacOS Bravo must be reopened for .joy axes to operate
 
 	function handle_led_changes()
-		if bus_voltage[0] > 0 then
+		local profile = b738
+		if profile.bus_voltage[0] > 0 then
 			master_state = true
 
 			-- HDG
-			set_led(LED_FCU_HDG, get_ap_state(hdg))
+			set_led(profile.LED_FCU_HDG, get_ap_state(profile.hdg))
 
 			-- NAV
-			set_led(LED_FCU_NAV, get_ap_state(nav))
+			set_led(profile.LED_FCU_NAV, get_ap_state(profile.nav))
 
 			-- APR
-			set_led(LED_FCU_APR, get_ap_state(apr))
+			set_led(profile.LED_FCU_APR, get_ap_state(profile.apr))
 
 			-- REV
-			set_led(LED_FCU_REV, get_ap_state(rev))
+			set_led(profile.LED_FCU_REV, get_ap_state(profile.rev))
 
 			-- ALT
 			local alt_bool
 
-			if alt[0] > 1 then
+			if profile.alt[0] > 1 then
 				alt_bool = true
 			else
 				alt_bool = false
 			end
 
-			set_led(LED_FCU_ALT, alt_bool)
+			set_led(profile.LED_FCU_ALT, alt_bool)
 
 			-- VS
-			set_led(LED_FCU_VS, get_ap_state(vs))
+			set_led(profile.LED_FCU_VS, get_ap_state(profile.vs))
 
 			-- IAS
-			set_led(LED_FCU_IAS, get_ap_state(ias))
+			set_led(profile.LED_FCU_IAS, get_ap_state(profile.ias))
 
 			-- AUTOPILOT
-			set_led(LED_FCU_AP, int_to_bool(ap[0]))
+			set_led(profile.LED_FCU_AP, int_to_bool(profile.ap[0]))
 
 			-- Landing gear
 			local gear_leds = {}
@@ -251,11 +391,11 @@ local LED_ANC_DOOR =		{4, 4}
 			for i = 1, 3 do
 				gear_leds[i] = {nil, nil} -- green, red
 
-				if gear[i - 1] == 0 then
+				if profile.gear[i - 1] == 0 then
 					-- Gear stowed
 					gear_leds[i][1] = false
 					gear_leds[i][2] = false
-				elseif gear[i - 1] == 1 then
+				elseif profile.gear[i - 1] == 1 then
 					-- Gear deployed
 					gear_leds[i][1] = true
 					gear_leds[i][2] = false
@@ -266,78 +406,78 @@ local LED_ANC_DOOR =		{4, 4}
 				end
 			end
 
-			set_led(LED_LDG_N_GREEN, gear_leds[1][1])
-			set_led(LED_LDG_N_RED, gear_leds[1][2])
-			set_led(LED_LDG_L_GREEN, gear_leds[2][1])
-			set_led(LED_LDG_L_RED, gear_leds[2][2])
-			set_led(LED_LDG_R_GREEN, gear_leds[3][1])
-			set_led(LED_LDG_R_RED, gear_leds[3][2])
+			set_led(profile.LED_LDG_N_GREEN, gear_leds[1][1])
+			set_led(profile.LED_LDG_N_RED, gear_leds[1][2])
+			set_led(profile.LED_LDG_L_GREEN, gear_leds[2][1])
+			set_led(profile.LED_LDG_L_RED, gear_leds[2][2])
+			set_led(profile.LED_LDG_R_GREEN, gear_leds[3][1])
+			set_led(profile.LED_LDG_R_RED, gear_leds[3][2])
 
 			-- MASTER WARNING
-			set_led(LED_ANC_MSTR_WARNG, int_to_bool(master_warn[0]))
+			set_led(profile.LED_ANC_MSTR_WARNG, int_to_bool(profile.master_warn[0]))
 
 			-- ENGINE FIRE
-			set_led(LED_ANC_ENG_FIRE, array_has_true(fire))
+			set_led(profile.LED_ANC_ENG_FIRE, array_has_true(profile.fire))
 
 			-- LOW OIL PRESSURE
-			set_led(LED_ANC_OIL, array_has_true(oil_low_p))
+			set_led(profile.LED_ANC_OIL, array_has_true(profile.oil_low_p))
 
 			-- LOW FUEL PRESSURE
-			set_led(LED_ANC_FUEL, array_has_true(fuel_low_p))
+			set_led(profile.LED_ANC_FUEL, array_has_true(profile.fuel_low_p))
 
 			-- ANTI ICE
-			set_led(LED_ANC_ANTI_ICE, int_to_bool(anti_ice[0]))
+			set_led(profile.LED_ANC_ANTI_ICE, int_to_bool(profile.anti_ice[0]))
 
 			-- STARTER ENGAGED
-			set_led(LED_ANC_STARTER, array_has_true(starter))
+			set_led(profile.LED_ANC_STARTER, array_has_true(profile.starter))
 
 			-- APU
-			set_led(LED_ANC_APU, int_to_bool(apu[0]))
+			set_led(profile.LED_ANC_APU, int_to_bool(profile.apu[0]))
 
 			-- MASTER CAUTION
-			set_led(LED_ANC_MSTR_CTN, int_to_bool(master_caution[0]))
+			set_led(profile.LED_ANC_MSTR_CTN, int_to_bool(profile.master_caution[0]))
 
 			-- VACUUM
-			set_led(LED_ANC_VACUUM, int_to_bool(vacuum[0]))
+			set_led(profile.LED_ANC_VACUUM, int_to_bool(profile.vacuum[0]))
 
 			-- LOW HYD PRESSURE
-			set_led(LED_ANC_HYD, int_to_bool(hydro_low_p[0]))
+			set_led(profile.LED_ANC_HYD, int_to_bool(profile.hydro_low_p[0]))
 
 			-- AUX FUEL PUMP
 			local aux_fuel_pump_bool
 
-			if aux_fuel_pump_l[0] == 2 or aux_fuel_pump_r[0] == 2 then
+			if profile.aux_fuel_pump_l[0] == 2 or profile.aux_fuel_pump_r[0] == 2 then
 				aux_fuel_pump_bool = true
 			else
 				aux_fuel_pump_bool = false
 			end
 
-			set_led(LED_ANC_AUX_FUEL, aux_fuel_pump_bool)
+			set_led(profile.LED_ANC_AUX_FUEL, aux_fuel_pump_bool)
 
 			-- PARKING BRAKE
 			local parking_brake_bool
 
-			if parking_brake[0] > 0 then
+			if profile.parking_brake[0] > 0 then
 				parking_brake_bool = true
 			else
 				parking_brake_bool = false
 			end
 
-			set_led(LED_ANC_PRK_BRK, parking_brake_bool)
+			set_led(profile.LED_ANC_PRK_BRK, parking_brake_bool)
 
 			-- LOW VOLTS
-			set_led(LED_ANC_VOLTS, int_to_bool(volt_low[0]))
+			set_led(profile.LED_ANC_VOLTS, int_to_bool(profile.volt_low[0]))
 
 			-- DOOR
 			local door_bool = false
 
-			if canopy[0] > 0.01 then
+			if profile.canopy[0] > 0.01 then
 				door_bool = true
 			end
 
 			if door_bool == false then
 				for i = 0, 9 do
-					if doors[i] > 0.01 then
+					if profile.doors[i] > 0.01 then
 						door_bool = true
 						break
 					end
@@ -345,10 +485,10 @@ local LED_ANC_DOOR =		{4, 4}
 			end
 
 			if door_bool == false then
-				door_bool = int_to_bool(cabin_door[0])
+				door_bool = int_to_bool(profile.cabin_door[0])
 			end
 
-			set_led(LED_ANC_DOOR, door_bool)
+			set_led(profile.LED_ANC_DOOR, door_bool)
 		elseif master_state == true then
 			-- No bus voltage, disable all LEDs
 			master_state = false
@@ -361,15 +501,6 @@ local LED_ANC_DOOR =		{4, 4}
 		end
 	end
 
-	do_every_frame('handle_led_changes()')
-
-	function exit_handler()
-		all_leds_off()
-		send_hid_data()
-	end
-
-	do_on_exit('exit_handler()')
-
 -- Commands for switching autopilot modes used by the rotary encoder.
 -- Cannot know the initial state of the right hand rotary until it is moved, so assume IAS
 local mode = 'IAS'
@@ -378,46 +509,6 @@ local bus_voltage = dataref_table('laminar/B738/electric/batbus_status')
 function setMode(modeString)
 	mode = modeString
 end
-
-create_command(
-	'HoneycombBravo/mode_ias',
-	'Set autopilot rotary encoder mode to IAS.',
-	'setMode("IAS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_crs',
-	'Set autopilot rotary encoder mode to CRS.',
-	'setMode("CRS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_hdg',
-	'Set autopilot rotary encoder mode to HDG.',
-	'setMode("HDG")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_vs',
-	'Set autopilot rotary encoder mode to VS.',
-	'setMode("VS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_alt',
-	'Set autopilot rotary encoder mode to ALT.',
-	'setMode("ALT")',
-	'',
-	''
-)
 
 -- Commands for changing values of the selected autopilot mode with the rotary encoder for B738.
 local airspeed_is_mach = dataref_table('laminar/B738/autopilot/mcp_speed_dial_kts_mach')
@@ -503,23 +594,6 @@ function change_value(increase)
 	last_mode = mode
 	last_time = os.clock()
 end
-
-create_command(
-	'HoneycombBravo/increase',
-	'Increase the value of the autopilot mode selected with the rotary encoder.',
-	'change_value(true)',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/decrease',
-	'Decrease the value of the autopilot mode selected with the rotary encoder.',
-	'change_value(false)',
-	'',
-	''
-)
-
 
 elseif PLANE_ICAO == "BE9L" then
 
@@ -610,50 +684,67 @@ local LED_ANC_DOOR =		{4, 4}
 	-- Initialize our default state
 	all_leds_off()
 	send_hid_data()
-	hid_open(10571, 6401) -- MacOS Bravo must be reopened for .joy axes to operate
+	reopen_for_axes() -- MacOS Bravo must be reopened for .joy axes to operate
 
-	-- Change LEDs when their underlying dataref changes
-	-- Bus voltage as a master LED switch
-	local bus_voltage = dataref_table('sim/cockpit2/electrical/bus_volts')
-
-    -- Datarefs configuration for BE9L.
-
-	-- Autopilot
-	local hdg = dataref_table('sim/cockpit2/autopilot/heading_mode')
-	local nav = dataref_table('sim/cockpit2/autopilot/nav_status')
-	local apr = dataref_table('sim/cockpit2/autopilot/approach_status')
-	local rev = dataref_table('sim/cockpit2/autopilot/backcourse_status')
-	local alt = dataref_table('sim/cockpit2/autopilot/altitude_hold_status')
-	local vs = dataref_table('sim/cockpit2/autopilot/vvi_status')
-	local ias = dataref_table('sim/cockpit2/autopilot/autothrottle_on')
-
-	local ap = dataref_table('sim/cockpit2/autopilot/servos_on')
-
-	-- Landing gear LEDs
-	local gear = dataref_table('sim/flightmodel2/gear/deploy_ratio')
-
-	-- Annunciator panel - top row
-	local master_warn = dataref_table('sim/cockpit2/annunciators/master_warning')
-	local fire = dataref_table('sim/cockpit2/annunciators/engine_fires')
-	local oil_low_p = dataref_table('sim/cockpit2/annunciators/oil_pressure_low')
-	local fuel_low_p = dataref_table('sim/cockpit2/annunciators/fuel_pressure_low')
-	local anti_ice = dataref_table('sim/cockpit2/annunciators/pitot_heat')
-	local starter = dataref_table('sim/cockpit2/engine/actuators/starter_hit')
-	local apu = dataref_table('sim/cockpit2/electrical/APU_running')
-
-	-- Annunciator panel - bottom row
-	local master_caution = dataref_table('sim/cockpit2/annunciators/master_caution')
-	local vacuum = dataref_table('sim/cockpit2/annunciators/low_vacuum')
-	local hydro_low_p = dataref_table('sim/cockpit2/annunciators/hydraulic_pressure')
-	local aux_fuel_pump_l = dataref_table('sim/cockpit2/fuel/transfer_pump_left')
-	local aux_fuel_pump_r = dataref_table('sim/cockpit2/fuel/transfer_pump_right')
-	local parking_brake = dataref_table('sim/cockpit2/controls/parking_brake_ratio')
-	local volt_low = dataref_table('sim/cockpit2/annunciators/low_voltage')
-	local canopy = dataref_table('sim/flightmodel2/misc/canopy_open_ratio')
-	local doors = dataref_table('sim/flightmodel2/misc/door_open_ratio')
-	local cabin_door = dataref_table('sim/cockpit2/annunciators/cabin_door_open')
+	local profile = {
+		bus_voltage = dataref_table('sim/cockpit2/electrical/bus_volts'),
+		hdg = dataref_table('sim/cockpit2/autopilot/heading_mode'),
+		nav = dataref_table('sim/cockpit2/autopilot/nav_status'),
+		apr = dataref_table('sim/cockpit2/autopilot/approach_status'),
+		rev = dataref_table('sim/cockpit2/autopilot/backcourse_status'),
+		alt = dataref_table('sim/cockpit2/autopilot/altitude_hold_status'),
+		vs = dataref_table('sim/cockpit2/autopilot/vvi_status'),
+		ias = dataref_table('sim/cockpit2/autopilot/autothrottle_on'),
+		ap = dataref_table('sim/cockpit2/autopilot/servos_on'),
+		gear = dataref_table('sim/flightmodel2/gear/deploy_ratio'),
+		master_warn = dataref_table('sim/cockpit2/annunciators/master_warning'),
+		fire = dataref_table('sim/cockpit2/annunciators/engine_fires'),
+		oil_low_p = dataref_table('sim/cockpit2/annunciators/oil_pressure_low'),
+		fuel_low_p = dataref_table('sim/cockpit2/annunciators/fuel_pressure_low'),
+		anti_ice = dataref_table('sim/cockpit2/annunciators/pitot_heat'),
+		starter = dataref_table('sim/cockpit2/engine/actuators/starter_hit'),
+		apu = dataref_table('sim/cockpit2/electrical/APU_running'),
+		master_caution = dataref_table('sim/cockpit2/annunciators/master_caution'),
+		vacuum = dataref_table('sim/cockpit2/annunciators/low_vacuum'),
+		hydro_low_p = dataref_table('sim/cockpit2/annunciators/hydraulic_pressure'),
+		aux_fuel_pump_l = dataref_table('sim/cockpit2/fuel/transfer_pump_left'),
+		aux_fuel_pump_r = dataref_table('sim/cockpit2/fuel/transfer_pump_right'),
+		parking_brake = dataref_table('sim/cockpit2/controls/parking_brake_ratio'),
+		volt_low = dataref_table('sim/cockpit2/annunciators/low_voltage'),
+		canopy = dataref_table('sim/flightmodel2/misc/canopy_open_ratio'),
+		doors = dataref_table('sim/flightmodel2/misc/door_open_ratio'),
+		cabin_door = dataref_table('sim/cockpit2/annunciators/cabin_door_open')
+	}
 
 	function handle_led_changes()
+		local bus_voltage = profile.bus_voltage
+		local hdg = profile.hdg
+		local nav = profile.nav
+		local apr = profile.apr
+		local rev = profile.rev
+		local alt = profile.alt
+		local vs = profile.vs
+		local ias = profile.ias
+		local ap = profile.ap
+		local gear = profile.gear
+		local master_warn = profile.master_warn
+		local fire = profile.fire
+		local oil_low_p = profile.oil_low_p
+		local fuel_low_p = profile.fuel_low_p
+		local anti_ice = profile.anti_ice
+		local starter = profile.starter
+		local apu = profile.apu
+		local master_caution = profile.master_caution
+		local vacuum = profile.vacuum
+		local hydro_low_p = profile.hydro_low_p
+		local aux_fuel_pump_l = profile.aux_fuel_pump_l
+		local aux_fuel_pump_r = profile.aux_fuel_pump_r
+		local parking_brake = profile.parking_brake
+		local volt_low = profile.volt_low
+		local canopy = profile.canopy
+		local doors = profile.doors
+		local cabin_door = profile.cabin_door
+
 		if bus_voltage[0] > 0 then
 			master_state = true
 
@@ -805,61 +896,12 @@ local LED_ANC_DOOR =		{4, 4}
 		end
 	end
 
-	do_every_frame('handle_led_changes()')
-
-	function exit_handler()
-		all_leds_off()
-		send_hid_data()
-	end
-
-	do_on_exit('exit_handler()')
-
 -- Register commands for switching autopilot modes used by the rotary encoder
 local mode = 'IAS'
 
 function setMode(modeString)
 	mode = modeString
 end
-
-create_command(
-	'HoneycombBravo/mode_ias',
-	'Set autopilot rotary encoder mode to IAS.',
-	'setMode("IAS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_crs',
-	'Set autopilot rotary encoder mode to CRS.',
-	'setMode("CRS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_hdg',
-	'Set autopilot rotary encoder mode to HDG.',
-	'setMode("HDG")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_vs',
-	'Set autopilot rotary encoder mode to VS.',
-	'setMode("VS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_alt',
-	'Set autopilot rotary encoder mode to ALT.',
-	'setMode("ALT")',
-	'',
-	''
-)
 
 -- Commands for changing values of the selected autopilot mode with the rotary encoder for BE9L.
 local airspeed_is_mach = dataref_table('sim/cockpit2/autopilot/airspeed_is_mach')
@@ -946,22 +988,6 @@ function change_value(increase)
 	last_time = os.clock()
 end
 
-create_command(
-	'HoneycombBravo/increase',
-	'Increase the value of the autopilot mode selected with the rotary encoder.',
-	'change_value(true)',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/decrease',
-	'Decrease the value of the autopilot mode selected with the rotary encoder.',
-	'change_value(false)',
-	'',
-	''
-)
-
 -- Register commands for keeping thrust reversers (all or separate engines) on while the commands are active
 local reversers = dataref_table('sim/cockpit2/engine/actuators/prop_mode')
 
@@ -983,23 +1009,7 @@ function reverser(engine, state)
 	reversers[engine - 1] = get_prop_mode(state)
 end
 
-create_command(
-	'HoneycombBravo/thrust_reversers',
-	'Hold all thrust reversers on.',
-	'reversers_all(true)',
-	'',
-	'reversers_all(false)'
-)
-
-for i = 1, 8 do
-	create_command(
-		'HoneycombBravo/thrust_reverser_'..i,
-		'Hold thrust reverser #'..i..' on.',
-		'reverser('..i..', true)',
-		'',
-		'reverser('..i..', false)'
-	)
-end
+register_reverser_commands = true
 
 elseif PLANE_ICAO == "C172" or PLANE_ICAO == "SR22" then
 
@@ -1090,51 +1100,69 @@ local LED_ANC_DOOR =		{4, 4}
 	-- Initialize our default state
 	all_leds_off()
 	send_hid_data()
-	hid_open(10571, 6401) -- MacOS Bravo must be reopened for .joy axes to operate
+	reopen_for_axes() -- MacOS Bravo must be reopened for .joy axes to operate
 
-	-- Change LEDs when their underlying dataref changes
-	-- Bus voltage as a master LED switch
-	local bus_voltage = dataref_table('sim/cockpit2/electrical/bus_volts')
-
-    -- Datarefs configuration for C172 SKYHAWK, C172 G1000 and SR22 Aircrafts.
-
-	-- Autopilot
-	local hdg = dataref_table('sim/cockpit2/autopilot/heading_mode')
-	local nav = dataref_table('sim/cockpit2/autopilot/nav_status')
-	local apr = dataref_table('sim/cockpit2/autopilot/approach_status')
-	local rev = dataref_table('sim/cockpit2/autopilot/backcourse_status')
-	local alt = dataref_table('sim/cockpit2/autopilot/altitude_hold_status')
-	local vs = dataref_table('sim/cockpit2/autopilot/vvi_status')
-	local ias = dataref_table('sim/cockpit2/autopilot/autothrottle_on')
-	local gpss = dataref_table('sim/cockpit2/autopilot/gpss_status')
-
-	local ap = dataref_table('sim/cockpit2/autopilot/servos_on')
-
-	-- Landing gear LEDs
-	local gear = dataref_table('sim/flightmodel2/gear/deploy_ratio')
-
-	-- Annunciator panel - top row
-	local master_warn = dataref_table('sim/cockpit2/annunciators/master_warning')
-	local fire = dataref_table('sim/cockpit2/annunciators/engine_fires')
-	local oil_low_p = dataref_table('sim/cockpit2/annunciators/oil_pressure_low')
-	local fuel_low_p = dataref_table('sim/cockpit2/annunciators/fuel_pressure_low')
-	local anti_ice = dataref_table('sim/cockpit2/annunciators/pitot_heat')
-	local starter = dataref_table('sim/cockpit2/engine/actuators/starter_hit')
-	local apu = dataref_table('sim/cockpit2/electrical/APU_running')
-
-	-- Annunciator panel - bottom row
-	local master_caution = dataref_table('sim/cockpit2/annunciators/master_caution')
-	local vacuum = dataref_table('sim/cockpit2/annunciators/low_vacuum')
-	local hydro_low_p = dataref_table('sim/cockpit2/annunciators/hydraulic_pressure')
-	local aux_fuel_pump_l = dataref_table('sim/cockpit2/fuel/transfer_pump_left')
-	local aux_fuel_pump_r = dataref_table('sim/cockpit2/fuel/transfer_pump_right')
-	local parking_brake = dataref_table('sim/cockpit2/controls/parking_brake_ratio')
-	local volt_low = dataref_table('sim/cockpit2/annunciators/low_voltage')
-	local canopy = dataref_table('sim/flightmodel2/misc/canopy_open_ratio')
-	local doors = dataref_table('sim/flightmodel2/misc/door_open_ratio')
-	local cabin_door = dataref_table('sim/cockpit2/annunciators/cabin_door_open')
+	local profile = {
+		bus_voltage = dataref_table('sim/cockpit2/electrical/bus_volts'),
+		hdg = dataref_table('sim/cockpit2/autopilot/heading_mode'),
+		nav = dataref_table('sim/cockpit2/autopilot/nav_status'),
+		apr = dataref_table('sim/cockpit2/autopilot/approach_status'),
+		rev = dataref_table('sim/cockpit2/autopilot/backcourse_status'),
+		alt = dataref_table('sim/cockpit2/autopilot/altitude_hold_status'),
+		vs = dataref_table('sim/cockpit2/autopilot/vvi_status'),
+		ias = dataref_table('sim/cockpit2/autopilot/autothrottle_on'),
+		gpss = dataref_table('sim/cockpit2/autopilot/gpss_status'),
+		ap = dataref_table('sim/cockpit2/autopilot/servos_on'),
+		gear = dataref_table('sim/flightmodel2/gear/deploy_ratio'),
+		master_warn = dataref_table('sim/cockpit2/annunciators/master_warning'),
+		fire = dataref_table('sim/cockpit2/annunciators/engine_fires'),
+		oil_low_p = dataref_table('sim/cockpit2/annunciators/oil_pressure_low'),
+		fuel_low_p = dataref_table('sim/cockpit2/annunciators/fuel_pressure_low'),
+		anti_ice = dataref_table('sim/cockpit2/annunciators/pitot_heat'),
+		starter = dataref_table('sim/cockpit2/engine/actuators/starter_hit'),
+		apu = dataref_table('sim/cockpit2/electrical/APU_running'),
+		master_caution = dataref_table('sim/cockpit2/annunciators/master_caution'),
+		vacuum = dataref_table('sim/cockpit2/annunciators/low_vacuum'),
+		hydro_low_p = dataref_table('sim/cockpit2/annunciators/hydraulic_pressure'),
+		aux_fuel_pump_l = dataref_table('sim/cockpit2/fuel/transfer_pump_left'),
+		aux_fuel_pump_r = dataref_table('sim/cockpit2/fuel/transfer_pump_right'),
+		parking_brake = dataref_table('sim/cockpit2/controls/parking_brake_ratio'),
+		volt_low = dataref_table('sim/cockpit2/annunciators/low_voltage'),
+		canopy = dataref_table('sim/flightmodel2/misc/canopy_open_ratio'),
+		doors = dataref_table('sim/flightmodel2/misc/door_open_ratio'),
+		cabin_door = dataref_table('sim/cockpit2/annunciators/cabin_door_open')
+	}
 
 	function handle_led_changes()
+		local bus_voltage = profile.bus_voltage
+		local hdg = profile.hdg
+		local nav = profile.nav
+		local apr = profile.apr
+		local rev = profile.rev
+		local alt = profile.alt
+		local vs = profile.vs
+		local ias = profile.ias
+		local gpss = profile.gpss
+		local ap = profile.ap
+		local gear = profile.gear
+		local master_warn = profile.master_warn
+		local fire = profile.fire
+		local oil_low_p = profile.oil_low_p
+		local fuel_low_p = profile.fuel_low_p
+		local anti_ice = profile.anti_ice
+		local starter = profile.starter
+		local apu = profile.apu
+		local master_caution = profile.master_caution
+		local vacuum = profile.vacuum
+		local hydro_low_p = profile.hydro_low_p
+		local aux_fuel_pump_l = profile.aux_fuel_pump_l
+		local aux_fuel_pump_r = profile.aux_fuel_pump_r
+		local parking_brake = profile.parking_brake
+		local volt_low = profile.volt_low
+		local canopy = profile.canopy
+		local doors = profile.doors
+		local cabin_door = profile.cabin_door
+
 		if bus_voltage[0] > 0 then
 			master_state = true
 
@@ -1270,61 +1298,12 @@ local LED_ANC_DOOR =		{4, 4}
 		end
 	end
 
-	do_every_frame('handle_led_changes()')
-
-	function exit_handler()
-		all_leds_off()
-		send_hid_data()
-	end
-
-	do_on_exit('exit_handler()')
-
 -- Register commands for switching autopilot modes used by the rotary encoder
 local mode = 'IAS'
 
 function setMode(modeString)
 	mode = modeString
 end
-
-create_command(
-	'HoneycombBravo/mode_ias',
-	'Set autopilot rotary encoder mode to IAS.',
-	'setMode("IAS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_crs',
-	'Set autopilot rotary encoder mode to CRS.',
-	'setMode("CRS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_hdg',
-	'Set autopilot rotary encoder mode to HDG.',
-	'setMode("HDG")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_vs',
-	'Set autopilot rotary encoder mode to VS.',
-	'setMode("VS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_alt',
-	'Set autopilot rotary encoder mode to ALT.',
-	'setMode("ALT")',
-	'',
-	''
-)
 
 -- Commands for changing values of the selected autopilot mode with the rotary encoder for C172 SKYHAWK, C172 G1000 and SR22.
 local airspeed_is_mach = dataref_table('sim/cockpit2/autopilot/airspeed_is_mach')
@@ -1417,22 +1396,6 @@ function change_value(increase)
 	last_time = os.clock()
 end
 
-create_command(
-	'HoneycombBravo/increase',
-	'Increase the value of the autopilot mode selected with the rotary encoder.',
-	'change_value(true)',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/decrease',
-	'Decrease the value of the autopilot mode selected with the rotary encoder.',
-	'change_value(false)',
-	'',
-	''
-)
-
 -- Register commands for keeping thrust reversers (all or separate engines) on while the commands are active
 local reversers = dataref_table('sim/cockpit2/engine/actuators/prop_mode')
 
@@ -1454,23 +1417,7 @@ function reverser(engine, state)
 	reversers[engine - 1] = get_prop_mode(state)
 end
 
-create_command(
-	'HoneycombBravo/thrust_reversers',
-	'Hold all thrust reversers on.',
-	'reversers_all(true)',
-	'',
-	'reversers_all(false)'
-)
-
-for i = 1, 8 do
-	create_command(
-		'HoneycombBravo/thrust_reverser_'..i,
-		'Hold thrust reverser #'..i..' on.',
-		'reverser('..i..', true)',
-		'',
-		'reverser('..i..', false)'
-	)
-end
+register_reverser_commands = true
 
 else
 
@@ -1561,50 +1508,67 @@ local LED_ANC_DOOR =		{4, 4}
 	-- Initialize our default state
 	all_leds_off()
 	send_hid_data()
-	hid_open(10571, 6401) -- MacOS Bravo must be reopened for .joy axes to operate
+	reopen_for_axes() -- MacOS Bravo must be reopened for .joy axes to operate
 
-	-- Change LEDs when their underlying dataref changes
-	-- Bus voltage as a master LED switch
-	local bus_voltage = dataref_table('sim/cockpit2/electrical/bus_volts')
-
-    -- Datarefs configuration for Default Aircrafts.
-
-	-- Autopilot
-	local hdg = dataref_table('sim/cockpit2/autopilot/heading_mode')
-	local nav = dataref_table('sim/cockpit2/autopilot/nav_status')
-	local apr = dataref_table('sim/cockpit2/autopilot/approach_status')
-	local rev = dataref_table('sim/cockpit2/autopilot/backcourse_status')
-	local alt = dataref_table('sim/cockpit2/autopilot/altitude_hold_status')
-	local vs = dataref_table('sim/cockpit2/autopilot/vvi_status')
-	local ias = dataref_table('sim/cockpit2/autopilot/autothrottle_on')
-
-	local ap = dataref_table('sim/cockpit2/autopilot/servos_on')
-
-	-- Landing gear LEDs
-	local gear = dataref_table('sim/flightmodel2/gear/deploy_ratio')
-
-	-- Annunciator panel - top row
-	local master_warn = dataref_table('sim/cockpit2/annunciators/master_warning')
-	local fire = dataref_table('sim/cockpit2/annunciators/engine_fires')
-	local oil_low_p = dataref_table('sim/cockpit2/annunciators/oil_pressure_low')
-	local fuel_low_p = dataref_table('sim/cockpit2/annunciators/fuel_pressure_low')
-	local anti_ice = dataref_table('sim/cockpit2/annunciators/pitot_heat')
-	local starter = dataref_table('sim/cockpit2/engine/actuators/starter_hit')
-	local apu = dataref_table('sim/cockpit2/electrical/APU_running')
-
-	-- Annunciator panel - bottom row
-	local master_caution = dataref_table('sim/cockpit2/annunciators/master_caution')
-	local vacuum = dataref_table('sim/cockpit2/annunciators/low_vacuum')
-	local hydro_low_p = dataref_table('sim/cockpit2/annunciators/hydraulic_pressure')
-	local aux_fuel_pump_l = dataref_table('sim/cockpit2/fuel/transfer_pump_left')
-	local aux_fuel_pump_r = dataref_table('sim/cockpit2/fuel/transfer_pump_right')
-	local parking_brake = dataref_table('sim/cockpit2/controls/parking_brake_ratio')
-	local volt_low = dataref_table('sim/cockpit2/annunciators/low_voltage')
-	local canopy = dataref_table('sim/flightmodel2/misc/canopy_open_ratio')
-	local doors = dataref_table('sim/flightmodel2/misc/door_open_ratio')
-	local cabin_door = dataref_table('sim/cockpit2/annunciators/cabin_door_open')
+	local profile = {
+		bus_voltage = dataref_table('sim/cockpit2/electrical/bus_volts'),
+		hdg = dataref_table('sim/cockpit2/autopilot/heading_mode'),
+		nav = dataref_table('sim/cockpit2/autopilot/nav_status'),
+		apr = dataref_table('sim/cockpit2/autopilot/approach_status'),
+		rev = dataref_table('sim/cockpit2/autopilot/backcourse_status'),
+		alt = dataref_table('sim/cockpit2/autopilot/altitude_hold_status'),
+		vs = dataref_table('sim/cockpit2/autopilot/vvi_status'),
+		ias = dataref_table('sim/cockpit2/autopilot/autothrottle_on'),
+		ap = dataref_table('sim/cockpit2/autopilot/servos_on'),
+		gear = dataref_table('sim/flightmodel2/gear/deploy_ratio'),
+		master_warn = dataref_table('sim/cockpit2/annunciators/master_warning'),
+		fire = dataref_table('sim/cockpit2/annunciators/engine_fires'),
+		oil_low_p = dataref_table('sim/cockpit2/annunciators/oil_pressure_low'),
+		fuel_low_p = dataref_table('sim/cockpit2/annunciators/fuel_pressure_low'),
+		anti_ice = dataref_table('sim/cockpit2/annunciators/pitot_heat'),
+		starter = dataref_table('sim/cockpit2/engine/actuators/starter_hit'),
+		apu = dataref_table('sim/cockpit2/electrical/APU_running'),
+		master_caution = dataref_table('sim/cockpit2/annunciators/master_caution'),
+		vacuum = dataref_table('sim/cockpit2/annunciators/low_vacuum'),
+		hydro_low_p = dataref_table('sim/cockpit2/annunciators/hydraulic_pressure'),
+		aux_fuel_pump_l = dataref_table('sim/cockpit2/fuel/transfer_pump_left'),
+		aux_fuel_pump_r = dataref_table('sim/cockpit2/fuel/transfer_pump_right'),
+		parking_brake = dataref_table('sim/cockpit2/controls/parking_brake_ratio'),
+		volt_low = dataref_table('sim/cockpit2/annunciators/low_voltage'),
+		canopy = dataref_table('sim/flightmodel2/misc/canopy_open_ratio'),
+		doors = dataref_table('sim/flightmodel2/misc/door_open_ratio'),
+		cabin_door = dataref_table('sim/cockpit2/annunciators/cabin_door_open')
+	}
 
 	function handle_led_changes()
+		local bus_voltage = profile.bus_voltage
+		local hdg = profile.hdg
+		local nav = profile.nav
+		local apr = profile.apr
+		local rev = profile.rev
+		local alt = profile.alt
+		local vs = profile.vs
+		local ias = profile.ias
+		local ap = profile.ap
+		local gear = profile.gear
+		local master_warn = profile.master_warn
+		local fire = profile.fire
+		local oil_low_p = profile.oil_low_p
+		local fuel_low_p = profile.fuel_low_p
+		local anti_ice = profile.anti_ice
+		local starter = profile.starter
+		local apu = profile.apu
+		local master_caution = profile.master_caution
+		local vacuum = profile.vacuum
+		local hydro_low_p = profile.hydro_low_p
+		local aux_fuel_pump_l = profile.aux_fuel_pump_l
+		local aux_fuel_pump_r = profile.aux_fuel_pump_r
+		local parking_brake = profile.parking_brake
+		local volt_low = profile.volt_low
+		local canopy = profile.canopy
+		local doors = profile.doors
+		local cabin_door = profile.cabin_door
+
 		if bus_voltage[0] > 0 then
 			master_state = true
 
@@ -1756,61 +1720,12 @@ local LED_ANC_DOOR =		{4, 4}
 		end
 	end
 
-	do_every_frame('handle_led_changes()')
-
-	function exit_handler()
-		all_leds_off()
-		send_hid_data()
-	end
-
-	do_on_exit('exit_handler()')
-
 -- Register commands for switching autopilot modes used by the rotary encoder
 local mode = 'IAS'
 
 function setMode(modeString)
 	mode = modeString
 end
-
-create_command(
-	'HoneycombBravo/mode_ias',
-	'Set autopilot rotary encoder mode to IAS.',
-	'setMode("IAS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_crs',
-	'Set autopilot rotary encoder mode to CRS.',
-	'setMode("CRS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_hdg',
-	'Set autopilot rotary encoder mode to HDG.',
-	'setMode("HDG")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_vs',
-	'Set autopilot rotary encoder mode to VS.',
-	'setMode("VS")',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/mode_alt',
-	'Set autopilot rotary encoder mode to ALT.',
-	'setMode("ALT")',
-	'',
-	''
-)
 
 -- Commands for changing values of the selected autopilot mode with the rotary encoder for Default Aircrafts.
 local airspeed_is_mach = dataref_table('sim/cockpit2/autopilot/airspeed_is_mach')
@@ -1897,22 +1812,6 @@ function change_value(increase)
 	last_time = os.clock()
 end
 
-create_command(
-	'HoneycombBravo/increase',
-	'Increase the value of the autopilot mode selected with the rotary encoder.',
-	'change_value(true)',
-	'',
-	''
-)
-
-create_command(
-	'HoneycombBravo/decrease',
-	'Decrease the value of the autopilot mode selected with the rotary encoder.',
-	'change_value(false)',
-	'',
-	''
-)
-
 -- Register commands for keeping thrust reversers (all or separate engines) on while the commands are active
 local reversers = dataref_table('sim/cockpit2/engine/actuators/prop_mode')
 
@@ -1934,21 +1833,10 @@ function reverser(engine, state)
 	reversers[engine - 1] = get_prop_mode(state)
 end
 
-create_command(
-	'HoneycombBravo/thrust_reversers',
-	'Hold all thrust reversers on.',
-	'reversers_all(true)',
-	'',
-	'reversers_all(false)'
-)
+register_reverser_commands = true
+end
 
-for i = 1, 8 do
-	create_command(
-		'HoneycombBravo/thrust_reverser_'..i,
-		'Hold thrust reverser #'..i..' on.',
-		'reverser('..i..', true)',
-		'',
-		'reverser('..i..', false)'
-	)
-end
-end
+register_common_commands()
+
+do_every_frame('HoneycombBravo.handle_led_changes()')
+do_on_exit('HoneycombBravo.handle_exit()')

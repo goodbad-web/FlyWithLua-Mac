@@ -174,6 +174,8 @@ function MFD_CLR()
 	command_once("sim/GPS/g1000n3_clr")
 	elseif user_waypoint_window_on == 1 then
         float_wnd_destroy(usr_point_wnd)
+        usr_point_wnd = nil
+        user_waypoint_window_on = 0
     end
 end
 
@@ -357,23 +359,38 @@ end
 usr_point_wnd = nil
 
 function usr_point_show_wnd()
-    usr_point_wnd = float_wnd_create(340, 400, 1, true)
+    if usr_point_wnd then
+        return
+    end
+
+    local window = float_wnd_create(340, 400, 1, true)
+    if not window then
+        logMsg("User waypoint: unable to create floating window")
+        return
+    end
+
+    usr_point_wnd = window
     float_wnd_set_title(usr_point_wnd, " ")
     float_wnd_set_imgui_builder(usr_point_wnd, "usr_point_on_build")
 	float_wnd_set_onclose(usr_point_wnd, "closed_usr_point_wnd")
-	user_waypoint_window_on = user_waypoint_window_on + 1
+	user_waypoint_window_on = 1
 	get_location()
 end
 
 function usr_point_hide_wnd()
     if usr_point_wnd then
         float_wnd_destroy(usr_point_wnd)
+        usr_point_wnd = nil
+        user_waypoint_window_on = 0
     end
 end
 
 
 function closed_usr_point_wnd(usr_point_wnd)
-user_waypoint_window_on = 0
+    if _G.usr_point_wnd == usr_point_wnd then
+        _G.usr_point_wnd = nil
+    end
+    user_waypoint_window_on = 0
 --this should make the user_waypoint_window_on = 0
     -- This function is called when the user closes the window. Drawing or calling imgui
 end

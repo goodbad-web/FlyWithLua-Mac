@@ -7,49 +7,57 @@
 -- Author: Axel Seedig December 2022
 --
 
--- First we read the status of batterie 1. If batterie 1 is off, Nothing happens
---dataref("battery_switch1", "sim/cockpit2/electrical/battery_on")
-local battery_switch1 = get("sim/cockpit2/electrical/battery_on")
+-- Read the battery state live.  A value captured while the script is loaded
+-- becomes stale as soon as the aircraft's electrical state changes.
+local battery_switch1_ref = dataref_table("sim/cockpit2/electrical/battery_on")
 
 -- Here we define the left dial and set it to Alt, since when we start dark,
 -- we don't know what setting is actually set.
-left_dial = create_dataref_table("FlyWithLua/BravoDial/left_dial", "Data")
+local left_dial_ref = create_dataref_table("FlyWithLua/BravoDial/left_dial", "Data")
 
-left_dial[0] = "Alt"
+left_dial_ref[0] = "Alt"
+
+local function battery_is_on()
+	return battery_switch1_ref[0] == 1
+end
+
+local function set_left_dial(mode)
+	left_dial_ref[0] = mode
+end
 
 
 -- Functions to select the different registers (Alt, VS, HDG, CRS, IAS)
 function cmdLeftDial_Alt()
-		if battery_switch1 == 1 then
-			left_dial = "Alt"
+		if battery_is_on() then
+			set_left_dial("Alt")
 			XPLMSpeakString ( "Altitude mode." )
 		end
 end
 
 function cmdLeftDial_VS()
-		if battery_switch1 == 1 then
- 			left_dial = "VS"
+		if battery_is_on() then
+			set_left_dial("VS")
 			XPLMSpeakString ( "Vertical speed mode." )
 		end
 end
 
 function cmdLeftDial_HDG()
-		if battery_switch1 == 1 then
- 			left_dial = "HDG"
+		if battery_is_on() then
+			set_left_dial("HDG")
 			XPLMSpeakString ( "Heading mode." )
 		end
 end
 
 function cmdLeftDial_CRS()
-		if battery_switch1 == 1 then
- 			left_dial = "CRS"
+		if battery_is_on() then
+			set_left_dial("CRS")
 			XPLMSpeakString ( "Course mode." )
 		end
 end
 
 function cmdLeftDial_IAS()
-		if battery_switch1 == 1 then
- 			left_dial = "IAS"
+		if battery_is_on() then
+			set_left_dial("IAS")
 			XPLMSpeakString ( "Airspeed mode." )
 		end
 end
@@ -59,16 +67,17 @@ end
 -- value of the selected register
   
 function cmdRightDial_up()
-		if battery_switch1 == 1 then
-			if left_dial == "Alt" then
+		if battery_is_on() then
+			local mode = left_dial_ref[0]
+			if mode == "Alt" then
 				command_once('sim/autopilot/altitude_up')
-			elseif left_dial == "VS" then
+			elseif mode == "VS" then
 				command_once('sim/autopilot/vertical_speed_up')
-			elseif left_dial == "HDG" then
+			elseif mode == "HDG" then
 				command_once('sim/autopilot/heading_up')
-			elseif left_dial == "CRS" then
+			elseif mode == "CRS" then
 				command_once('sim/radios/obs1_up')
-			elseif left_dial == "IAS" then
+			elseif mode == "IAS" then
 				command_once('sim/autopilot/airspeed_up')
 			end
 		end
@@ -79,16 +88,17 @@ end
 -- value of the selected register
 
 function cmdRightDial_dn()
-		if battery_switch1 == 1 then
-			if left_dial == "Alt" then
+		if battery_is_on() then
+			local mode = left_dial_ref[0]
+			if mode == "Alt" then
 				command_once('sim/autopilot/altitude_down')
-			elseif left_dial == "VS" then
+			elseif mode == "VS" then
 				command_once('sim/autopilot/vertical_speed_down')
-			elseif left_dial == "HDG" then
+			elseif mode == "HDG" then
 				command_once('sim/autopilot/heading_down')
-			elseif left_dial == "CRS" then
+			elseif mode == "CRS" then
 				command_once('sim/radios/obs1_down')
-			elseif left_dial == "IAS" then
+			elseif mode == "IAS" then
 				command_once('sim/autopilot/airspeed_down')
 			end
 		end

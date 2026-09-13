@@ -44,9 +44,9 @@ do_sometimes("set_visual_trim_display_position()")
 dataref("VTS_aileron_trim", "sim/cockpit2/controls/aileron_trim", "writable")
 dataref("VTS_elevator_trim", "sim/cockpit2/controls/elevator_trim", "writable")
 dataref("VTS_rudder_trim", "sim/cockpit2/controls/rudder_trim", "writable")
-dataref("yoke_pitch_ratio", "sim/joystick/yoke_pitch_ratio", "writable")
-dataref("yoke_roll_ratio", "sim/joystick/yoke_roll_ratio", "writable")
-dataref("yoke_heading_ratio", "sim/joystick/yoke_heading_ratio", "writable")
+dataref("yoke_pitch_ratio", "sim/joystick/yoke_pitch_ratio", "readonly")
+dataref("yoke_roll_ratio", "sim/joystick/yoke_roll_ratio", "readonly")
+dataref("yoke_heading_ratio", "sim/joystick/yoke_heading_ratio", "readonly")
 
 -- the function to show the diagnostic display
 function show_visual_trim()

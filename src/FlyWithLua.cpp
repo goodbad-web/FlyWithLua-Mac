@@ -87,6 +87,7 @@ struct FlyWithLuaPositiveEdgeFlip {
     bool lastPressed = false;
 };
 static std::vector<FlyWithLuaPositiveEdgeFlip> gPositiveEdgeFlips;
+static std::vector<int> gJoystickButtonValues;
 static std::vector<hid_device*> gOpenHIDDevices;
 static constexpr size_t kHIDReportBufferSize = 4096;
 static std::string gDrawCommand;
@@ -96,6 +97,10 @@ static std::string gSometimesCommand;
 static std::string gOnExitCommand;
 static std::string gMouseClickCommand;
 static std::string gMouseWheelCommand;
+static int gDrawChunkRef = LUA_NOREF;
+static int gEveryFrameChunkRef = LUA_NOREF;
+static int gOftenChunkRef = LUA_NOREF;
+static int gSometimesChunkRef = LUA_NOREF;
 static float gSometimesAccumulator = 0.0f;
 static int gDiscoveredScriptCount = 0;
 static int gLoadedScriptCount = 0;
@@ -120,6 +125,9 @@ extern "C" void register_swift_bridge(lua_State* L);
 float FlightLoopCallback(float inElapsedSinceLastCall, float inElapsedTimeSinceLastFlightLoop, int inCounter, void * inRefcon);
 int FlyWithLuaDrawCallback(XPLMDrawingPhase inPhase, int inIsBefore, void * inRefcon);
 static void RunLuaStringChunk(const std::string& code, const char* context);
+static void InvalidateLuaCallbackChunk(int& chunkRef);
+static void InvalidateAllLuaCallbackChunks();
+static void RunLuaCallbackChunk(const std::string& code, const char* context, int& chunkRef);
 static void FlyWithLuaMenuHandler(void*, void*);
 static void FlyWithLuaMacroMenuHandler(void*, void*);
 static bool HasFlyWithLuaScriptExtension(const std::string& fileName);
@@ -853,7 +861,71 @@ static void RunLuaStringChunk(const std::string& code, const char* context) {
     }
 
     if (luaL_dostring(L, code.c_str()) != 0) {
-        std::string errorMessage = lua_tostring(L, -1);
+        const char* luaError = lua_tostring(L, -1);
+        std::string errorMessage = luaError ? luaError : "unknown Lua error";
+        lua_pop(L, 1);
+        XPLMDebugString((std::string("FlyWithLua-Mac Lua Error (") + context + "): " + errorMessage + "\n").c_str());
+    }
+}
+
+static void InvalidateLuaCallbackChunk(int& chunkRef) {
+    if (L && chunkRef != LUA_NOREF) {
+        luaL_unref(L, LUA_REGISTRYINDEX, chunkRef);
+    }
+    chunkRef = LUA_NOREF;
+}
+
+static void InvalidateAllLuaCallbackChunks() {
+    InvalidateLuaCallbackChunk(gDrawChunkRef);
+    InvalidateLuaCallbackChunk(gEveryFrameChunkRef);
+    InvalidateLuaCallbackChunk(gOftenChunkRef);
+    InvalidateLuaCallbackChunk(gSometimesChunkRef);
+}
+
+static void RunLuaCallbackChunk(const std::string& code, const char* context, int& chunkRef) {
+    if (code.empty() || !L || !flywithlua::LuaIsRunning) {
+        return;
+    }
+
+    // Compile the callback once and invoke the resulting function on each
+    // frame. Wrapping the source in a function preserves the old behavior in
+    // which top-level locals are recreated for every callback invocation,
+    // while allowing LuaJIT to keep hot code and traces alive.
+    if (chunkRef == LUA_NOREF) {
+        std::string source;
+        source.reserve(code.size() + 32);
+        source.append("return function()\n");
+        source.append(code);
+        source.append("\nend");
+
+        if (luaL_loadbuffer(L, source.c_str(), source.size(), context) != 0) {
+            const char* luaError = lua_tostring(L, -1);
+            const std::string errorMessage = luaError ? luaError : "unknown Lua error";
+            lua_pop(L, 1);
+            XPLMDebugString((std::string("FlyWithLua-Mac Lua Error (") + context + "): " + errorMessage + "\n").c_str());
+            return;
+        }
+
+        if (lua_pcall(L, 0, 1, 0) != 0) {
+            const char* luaError = lua_tostring(L, -1);
+            const std::string errorMessage = luaError ? luaError : "unknown Lua error";
+            lua_pop(L, 1);
+            XPLMDebugString((std::string("FlyWithLua-Mac Lua Error (") + context + "): " + errorMessage + "\n").c_str());
+            return;
+        }
+
+        if (!lua_isfunction(L, -1)) {
+            lua_pop(L, 1);
+            XPLMDebugString((std::string("FlyWithLua-Mac Lua Error (") + context + "): callback did not compile to a function\n").c_str());
+            return;
+        }
+        chunkRef = luaL_ref(L, LUA_REGISTRYINDEX);
+    }
+
+    lua_rawgeti(L, LUA_REGISTRYINDEX, chunkRef);
+    if (lua_pcall(L, 0, 0, 0) != 0) {
+        const char* luaError = lua_tostring(L, -1);
+        const std::string errorMessage = luaError ? luaError : "unknown Lua error";
         lua_pop(L, 1);
         XPLMDebugString((std::string("FlyWithLua-Mac Lua Error (") + context + "): " + errorMessage + "\n").c_str());
     }
@@ -1851,10 +1923,11 @@ static void PollPositiveEdgeFlips() {
         return;
     }
 
-    std::vector<int> buttonValues(static_cast<size_t>(buttonCount), 0);
-    XPLMGetDatavi(gJoystickButtonDataRef, buttonValues.data(), 0, buttonCount);
+    gJoystickButtonValues.resize(static_cast<size_t>(buttonCount));
+    XPLMGetDatavi(gJoystickButtonDataRef, gJoystickButtonValues.data(), 0, buttonCount);
     for (FlyWithLuaPositiveEdgeFlip& flip : gPositiveEdgeFlips) {
-        const bool pressed = flip.button < buttonCount && buttonValues[static_cast<size_t>(flip.button)] != 0;
+        const bool pressed = flip.button < buttonCount &&
+                             gJoystickButtonValues[static_cast<size_t>(flip.button)] != 0;
         if (pressed && !flip.lastPressed) {
             SetPositiveEdgeFlipValue(flip, !PositiveEdgeFlipIsOn(flip));
         }
@@ -1867,6 +1940,7 @@ static int LuaDoEveryDrawCallback(lua_State* state) {
         return 0;
     }
     gDrawCommand.append(lua_tostring(state, 1)).append("\n");
+    InvalidateLuaCallbackChunk(gDrawChunkRef);
     return 0;
 }
 
@@ -1875,6 +1949,7 @@ static int LuaDoEveryFrameCallback(lua_State* state) {
         return 0;
     }
     gEveryFrameCommand.append(lua_tostring(state, 1)).append("\n");
+    InvalidateLuaCallbackChunk(gEveryFrameChunkRef);
     return 0;
 }
 
@@ -1883,6 +1958,7 @@ static int LuaDoOftenCallback(lua_State* state) {
         return 0;
     }
     gOftenCommand.append(lua_tostring(state, 1)).append("\n");
+    InvalidateLuaCallbackChunk(gOftenChunkRef);
     return 0;
 }
 
@@ -1891,6 +1967,7 @@ static int LuaDoSometimesCallback(lua_State* state) {
         return 0;
     }
     gSometimesCommand.append(lua_tostring(state, 1)).append("\n");
+    InvalidateLuaCallbackChunk(gSometimesChunkRef);
     return 0;
 }
 
@@ -1976,7 +2053,9 @@ static void RegisterFlyWithLuaCompatibilityFunctions(lua_State* state) {
 static void ResetLuaRuntimeState() {
     CloseAllOpenHIDDevices();
     gPositiveEdgeFlips.clear();
+    gJoystickButtonValues.clear();
     if (L) {
+        InvalidateAllLuaCallbackChunks();
         ClearFlyWithLuaCommands();
         lua_close(L);
     }
@@ -2425,17 +2504,21 @@ end
     ReplaceAll(initScript, "__INTERNALS__", internalsDir);
     ReplaceAll(initScript, "__MODULES__", modulesDir);
 
-    if (luaL_dostring(L, initScript.c_str())) {
-        XPLMDebugString(("FlyWithLua-Mac Lua Init Error: " + std::string(lua_tostring(L, -1)) + "\n").c_str());
-        lua_pop(L, 1);
-    }
+	if (luaL_dostring(L, initScript.c_str())) {
+		const char* luaError = lua_tostring(L, -1);
+		const std::string errorMessage = luaError ? luaError : "unknown Lua error";
+		XPLMDebugString(("FlyWithLua-Mac Lua Init Error: " + errorMessage + "\n").c_str());
+		lua_pop(L, 1);
+	}
 
     // Preserve the legacy globals used by HID scripts. The native functions
     // remain safe no-ops when hid_init() could not access a device backend.
-    if (luaL_dostring(L, "ALL_HID_DEVICES, NUMBER_OF_HID_DEVICES = create_HID_table()")) {
-        XPLMDebugString(("FlyWithLua-Mac HID initialization script error: " + std::string(lua_tostring(L, -1)) + "\n").c_str());
-        lua_pop(L, 1);
-    }
+	if (luaL_dostring(L, "ALL_HID_DEVICES, NUMBER_OF_HID_DEVICES = create_HID_table()")) {
+		const char* luaError = lua_tostring(L, -1);
+		const std::string errorMessage = luaError ? luaError : "unknown Lua error";
+		XPLMDebugString(("FlyWithLua-Mac HID initialization script error: " + errorMessage + "\n").c_str());
+		lua_pop(L, 1);
+	}
     char xplanePath[512];
     XPLMGetSystemPath(xplanePath);
     lua_pushstring(L, xplanePath);
@@ -2556,12 +2639,12 @@ float FlightLoopCallback(float inElapsedSinceLastCall, float inElapsedTimeSinceL
     flwnd::onFlightLoop();
     PollPositiveEdgeFlips();
 
-    RunLuaStringChunk(gEveryFrameCommand, "do_every_frame");
-    RunLuaStringChunk(gOftenCommand, "do_often");
+    RunLuaCallbackChunk(gEveryFrameCommand, "do_every_frame", gEveryFrameChunkRef);
+    RunLuaCallbackChunk(gOftenCommand, "do_often", gOftenChunkRef);
     gSometimesAccumulator += inElapsedSinceLastCall;
     if (gSometimesAccumulator >= 2.0f) {
         gSometimesAccumulator = 0.0f;
-        RunLuaStringChunk(gSometimesCommand, "do_sometimes");
+        RunLuaCallbackChunk(gSometimesCommand, "do_sometimes", gSometimesChunkRef);
     }
 
     if (gAltitudeDataRef) {
@@ -2601,7 +2684,7 @@ int FlyWithLuaDrawCallback(XPLMDrawingPhase /*inPhase*/, int /*inIsBefore*/, voi
     // Establish the 2D state expected by legacy FlyWithLua drawing scripts.
     XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
     flywithlua::WeAreNotInDrawingState = false;
-    RunLuaStringChunk(gDrawCommand, "do_every_draw");
+    RunLuaCallbackChunk(gDrawCommand, "do_every_draw", gDrawChunkRef);
     flywithlua::WeAreNotInDrawingState = true;
     return 1;
 }
@@ -2653,9 +2736,11 @@ PLUGIN_API void XPluginStop(void) {
         CloseAllOpenHIDDevices();
         hid_exit();
         gPositiveEdgeFlips.clear();
+        gJoystickButtonValues.clear();
         gPlaneICAODataRef = nullptr;
         gPlaneTailNumberDataRef = nullptr;
         
+        InvalidateAllLuaCallbackChunks();
         lua_close(L);
         L = nullptr;
         lState = nullptr;

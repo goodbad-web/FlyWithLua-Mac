@@ -159,6 +159,17 @@ local jjjFPS_useAutoShD = true      -- autom. shadow distance
 local jjjFPS_useAutoShK = true      -- autom. kill shadows, when sun is below a certain angle
 local jjjFPS_useAutoFSR = false     -- autom. change FSR
 
+-- Keep the requested feature set separate from the availability of private
+-- DataRefs. X-Plane can register these DataRefs after FlyWithLua loads this
+-- script, so availability must not become a permanent startup decision.
+local jjjFPS_configUseProcTimes = jjjFPS_useProcTimes
+local jjjFPS_configUseAutoLod   = jjjFPS_useAutoLod
+local jjjFPS_configUseAutoAGL   = jjjFPS_useAutoAGL
+local jjjFPS_configUseAutoCLD   = jjjFPS_useAutoCLD
+local jjjFPS_configUseAutoShD   = jjjFPS_useAutoShD
+local jjjFPS_configUseAutoShK   = jjjFPS_useAutoShK
+local jjjFPS_configUseAutoFSR   = jjjFPS_useAutoFSR
+
 local jjjFPS_dispAlpha = 0.8        -- opacity of display (0.0: invisble, 1.0: fully opaque)
 local jjjFPS_dispX     = 12         -- horizontal position in pixels
 --                                      (if positive: pixels from left side of screen, if negative: from right side of screen)
@@ -172,38 +183,11 @@ local jjjFPS_meterShowOrig  = true  -- graphic+numeric FPS display: show origina
 -- check needed datarefs:
 --------------------------------
 
-
 -- lights/do_spill_fog = 1
 
-
-if jjjFPS_useProcTimes then
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/private/stats/ogl/swap_time_total", true)
-end
-if jjjFPS_useAutoLod then
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/private/controls/reno/LOD_bias_rat", true)
-end
-if jjjFPS_useAutoCLD then
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/private/controls/new_clouds/march/seg_steps", true)
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/private/controls/new_clouds/march/step_len_start", true)
-end
-if jjjFPS_useAutoFSR then
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/private/controls/fsr/enable", true)
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/private/controls/fsr/quality", true)
-end
-if jjjFPS_useAutoShK then
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/private/controls/perf/disable_shadow_prep", true)
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/graphics/scenery/sun_pitch_degrees", true)
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/graphics/view/view_is_external", true)
-end
-if jjjFPS_useAutoShD then
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/private/controls/vegetation/billboard_shadows", true)
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/private/controls/shadow/csm/far_limit_interior", true)
-	jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/private/controls/shadow/csm/far_limit_exterior", true)
-end
-if jjjLib1.getNumMissingDataRefs(jjjFPS_plId) > 0 then
-	jjjLib1.warning(jjjFPS_plId, jjjLib1.getNumMissingDataRefs(jjjFPS_plId) .. ' DataRef(s) missing, some functions of the plugin are disabled!||The plugin is not fully compatible with your version of X-Plane. As the plugin has to use some unoffical control parameters (so called "DataRefs"), this is NOT a bug of X-Plane, FlyWithLua or the plugin itself! It is something that -unfortunately- simply can happen, please do not blame anyone for it.')
-end
-
+-- Do the feature-specific checks below after the initial variables have been
+-- created. The deferred retry near the end of this file handles DataRefs that
+-- are registered later during X-Plane startup.
 
 --------------------------------
 -- internal variables:
@@ -406,7 +390,7 @@ local jjjFPS_drAcfAGL_ptr    = nil
 local jjjFPS_drViewY_ptr     = nil
 local jjjFPS_useAutoAGLlod   = jjjFPS_useAutoLod
 if jjjFPS_useAutoAGL then
-	jjjFPS_useAutoAGL = jjjFPS_useAutoAGLlod and jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/flightmodel/position/local_y", true) and jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/flightmodel/position/y_agl", true) and jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/graphics/view/view_y", true)
+	jjjFPS_useAutoAGL = jjjFPS_useAutoAGLlod and jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/flightmodel/position/local_y") and jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/flightmodel/position/y_agl") and jjjLib1.dataRefAvailable(jjjFPS_plId, "sim/graphics/view/view_y")
 end
 if jjjFPS_useAutoAGL then
 	jjjFPS_drAcfY_ptr   = jjjLib1.findDataRef("sim/flightmodel/position/local_y")
@@ -424,6 +408,151 @@ local jjjFPS_DR_cloudsStepStartOrig = jjjFPS_DR_cloudsStepStart
 local jjjFPS_DR_shdLimitIntOrig     = jjjFPS_DR_shdLimitInt
 local jjjFPS_DR_shdLimitExtOrig     = jjjFPS_DR_shdLimitExt
 local jjjFPS_DR_shdBillboardsOrig   = jjjFPS_DR_shdBillboards
+
+local jjjFPS_smartModePreference = nil
+local jjjFPS_dataRefRetryUntil = jjjLib1.getClock() + 20.0
+local jjjFPS_dataRefRetryFinished = false
+local jjjFPS_dataRefRetryWarned = false
+
+function jjjFPS_retryDataRefs()
+	if jjjFPS_dataRefRetryFinished then
+		return
+	end
+
+	local missing = {}
+	local recovered = false
+	local function findRequiredDataRef(name)
+		local ptr = jjjLib1.findDataRef(name)
+		if ptr == nil then
+			missing[#missing + 1] = name
+		end
+		return ptr
+	end
+
+	if jjjFPS_configUseProcTimes and not jjjFPS_useProcTimes then
+		local gpuTimePtr = findRequiredDataRef("sim/time/gpu_time_per_frame_sec_approx")
+		local swapTimePtr = findRequiredDataRef("sim/private/stats/ogl/swap_time_total")
+		if gpuTimePtr ~= nil and swapTimePtr ~= nil then
+			jjjFPS_DR_gpuTime_ptr = gpuTimePtr
+			jjjFPS_DR_gpuTime = jjjLib1.getDataRef_f(gpuTimePtr)
+			jjjFPS_DR_swapTime_ptr = swapTimePtr
+			jjjFPS_DR_swapTime = jjjLib1.getDataRef_f(swapTimePtr)
+			jjjFPS_DR_swapTimeOld = jjjFPS_DR_swapTime
+			jjjFPS_useProcTimes = true
+			if jjjFPS_smartModePreference ~= nil then
+				jjjFPS_setParam("smartM", jjjFPS_smartModePreference)
+			end
+			recovered = true
+		end
+	end
+
+	if jjjFPS_configUseAutoCLD and not jjjFPS_useAutoCLD then
+		local cloudsSegStepsPtr = findRequiredDataRef("sim/private/controls/new_clouds/march/seg_steps")
+		local cloudsStepStartPtr = findRequiredDataRef("sim/private/controls/new_clouds/march/step_len_start")
+		if cloudsSegStepsPtr ~= nil and cloudsStepStartPtr ~= nil then
+			jjjFPS_DR_cloudsSegSteps_ptr = cloudsSegStepsPtr
+			jjjFPS_DR_cloudsSegSteps = jjjLib1.getDataRef_f(cloudsSegStepsPtr)
+			jjjFPS_DR_cloudsStepStart_ptr = cloudsStepStartPtr
+			jjjFPS_DR_cloudsStepStart = jjjLib1.getDataRef_f(cloudsStepStartPtr)
+			jjjFPS_DR_cloudsSegStepsOrig = jjjFPS_DR_cloudsSegSteps
+			jjjFPS_DR_cloudsStepStartOrig = jjjFPS_DR_cloudsStepStart
+			jjjFPS_useAutoCLD = true
+			recovered = true
+		end
+	end
+
+	if jjjFPS_configUseAutoFSR and not jjjFPS_useAutoFSR then
+		local fsrOnPtr = findRequiredDataRef("sim/private/controls/fsr/enable")
+		local fsrQualityPtr = findRequiredDataRef("sim/private/controls/fsr/quality")
+		if fsrOnPtr ~= nil and fsrQualityPtr ~= nil then
+			jjjFPS_DR_FSRon_ptr = fsrOnPtr
+			jjjFPS_DR_FSRon = jjjLib1.getDataRef_f(fsrOnPtr)
+			jjjFPS_DR_FSRq_ptr = fsrQualityPtr
+			jjjFPS_DR_FSRq = jjjLib1.getDataRef_f(fsrQualityPtr)
+			jjjFPS_DR_FSRonOrig = jjjFPS_DR_FSRon
+			jjjFPS_DR_FSRqOrig = jjjFPS_DR_FSRq
+			if jjjFPS_DR_FSRon == 1 then
+				jjjFPS_curFSRmode = jjjFPS_DR_FSRq
+			else
+				jjjFPS_curFSRmode = 4
+			end
+			jjjFPS_useAutoFSR = true
+			recovered = true
+		end
+	end
+
+	if jjjFPS_configUseAutoLod and not jjjFPS_useAutoLod then
+		local lodBiasPtr = findRequiredDataRef("sim/private/controls/reno/LOD_bias_rat")
+		if lodBiasPtr ~= nil then
+			jjjFPS_DR_lodBias_ptr = lodBiasPtr
+			jjjFPS_DR_lodBias = jjjLib1.getDataRef_f(lodBiasPtr)
+			jjjFPS_DR_lodBiasOrig = jjjFPS_DR_lodBias
+			jjjFPS_useAutoLod = true
+			recovered = true
+		end
+	end
+
+	jjjFPS_useAutoAGLlod = jjjFPS_useAutoLod
+	if jjjFPS_configUseAutoAGL and not jjjFPS_useAutoAGL and jjjFPS_useAutoAGLlod then
+		local acfYPtr = findRequiredDataRef("sim/flightmodel/position/local_y")
+		local acfAGLPtr = findRequiredDataRef("sim/flightmodel/position/y_agl")
+		local viewYPtr = findRequiredDataRef("sim/graphics/view/view_y")
+		if acfYPtr ~= nil and acfAGLPtr ~= nil and viewYPtr ~= nil then
+			jjjFPS_drAcfY_ptr = acfYPtr
+			jjjFPS_drAcfAGL_ptr = acfAGLPtr
+			jjjFPS_drViewY_ptr = viewYPtr
+			jjjFPS_useAutoAGL = true
+			recovered = true
+		end
+	end
+
+	if jjjFPS_configUseAutoShD and not jjjFPS_useAutoShD then
+		local shdLimitIntPtr = findRequiredDataRef("sim/private/controls/shadow/csm/far_limit_interior")
+		local shdLimitExtPtr = findRequiredDataRef("sim/private/controls/shadow/csm/far_limit_exterior")
+		local shdBillboardsPtr = findRequiredDataRef("sim/private/controls/vegetation/billboard_shadows")
+		if shdLimitIntPtr ~= nil and shdLimitExtPtr ~= nil and shdBillboardsPtr ~= nil then
+			jjjFPS_DR_shdLimitInt_ptr = shdLimitIntPtr
+			jjjFPS_DR_shdLimitInt = jjjLib1.getDataRef_f(shdLimitIntPtr)
+			jjjFPS_DR_shdLimitExt_ptr = shdLimitExtPtr
+			jjjFPS_DR_shdLimitExt = jjjLib1.getDataRef_f(shdLimitExtPtr)
+			jjjFPS_DR_shdBillboards_ptr = shdBillboardsPtr
+			jjjFPS_DR_shdBillboards = jjjLib1.getDataRef_f(shdBillboardsPtr)
+			jjjFPS_DR_shdLimitIntOrig = jjjFPS_DR_shdLimitInt
+			jjjFPS_DR_shdLimitExtOrig = jjjFPS_DR_shdLimitExt
+			jjjFPS_DR_shdBillboardsOrig = jjjFPS_DR_shdBillboards
+			jjjFPS_useAutoShD = true
+			recovered = true
+		end
+	end
+
+	if jjjFPS_configUseAutoShK and not jjjFPS_useAutoShK then
+		local disShdPrepPtr = findRequiredDataRef("sim/private/controls/perf/disable_shadow_prep")
+		local sunPitchPtr = findRequiredDataRef("sim/graphics/scenery/sun_pitch_degrees")
+		local viewExtPtr = findRequiredDataRef("sim/graphics/view/view_is_external")
+		if disShdPrepPtr ~= nil and sunPitchPtr ~= nil and viewExtPtr ~= nil then
+			jjjFPS_DR_disShdPrep_ptr = disShdPrepPtr
+			jjjFPS_DR_sunPitch_ptr = sunPitchPtr
+			jjjFPS_DR_viewExt_ptr = viewExtPtr
+			jjjFPS_useAutoShK = true
+			recovered = true
+		end
+	end
+
+	if recovered then
+		jjjFPS_calcMeter()
+		jjjFPS_setAutoShDOnOff()
+	end
+
+	if #missing == 0 then
+		jjjFPS_dataRefRetryFinished = true
+	elseif jjjLib1.getClock() >= jjjFPS_dataRefRetryUntil and not jjjFPS_dataRefRetryWarned then
+		for _, name in ipairs(missing) do
+			jjjLib1.warning(jjjFPS_plId, 'DataRef "' .. name .. '" is missing!')
+		end
+		jjjLib1.warning(jjjFPS_plId, 'Some functions of the plugin are disabled because required DataRefs are unavailable after startup.||The plugin is not fully compatible with this version of X-Plane.')
+		jjjFPS_dataRefRetryWarned = true
+	end
+end
 
 
 -- Panel variables
@@ -2401,6 +2530,7 @@ end
 
 jjjFPS_setAutoShDOnOff()
 
+jjjFPS_smartModePreference = jjjFPS_param("smartM")
 if jjjFPS_useProcTimes ~= true then
 	jjjFPS_setParam("smartM", false)
 end
@@ -2452,6 +2582,7 @@ do_on_exit("jjjFPS_exit()")
 
 do_every_frame("jjjFPS_main()")
 do_every_draw("jjjFPS_draw()")
+do_sometimes("jjjFPS_retryDataRefs()")
 do_sometimes("jjjFPS_check()")
 
 jjjFPS_refreshPanel()

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -Eeuo pipefail
 
 function build() {
   local src_dir="$1"
@@ -9,7 +9,6 @@ function build() {
   local build_dir="$src_dir/build-$platform"
 
   local flags=()
-  local cmake="cmake"
   case "$platform" in
     lin)
       ;;
@@ -28,12 +27,17 @@ function build() {
   (
 #    export PATH="$PATH:/usr/osxcross/bin"
     mkdir -p "$build_dir" && cd "$build_dir"
-    "$cmake" -G Ninja "${flags[@]}" ..
+    cmake -G Ninja "${flags[@]}" ..
     ninja -v
   )
 }
 
-src_dir="$(pwd)"
-for platform in $@; do
+if [ "$#" -eq 0 ]; then
+  echo "Usage: $0 <platform> [<platform> ...]" >&2
+  exit 2
+fi
+
+src_dir="$(cd "$(dirname "$0")/.." && pwd)"
+for platform in "$@"; do
   build "$src_dir" "$platform"
 done

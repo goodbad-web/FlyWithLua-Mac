@@ -8,7 +8,25 @@ env:
   FWL_VERSION: 2.8.14
 
 jobs:
+  check-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install script check tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends luajit shellcheck
+      - name: Check Lua syntax
+        run: bash scripts/check_lua_syntax.sh
+      - name: Run Lua regression tests
+        run: bash scripts/run_lua_tests.sh
+      - name: Check shell scripts
+        run: |
+          bash -n scripts/*.sh docker/*.sh
+          shellcheck scripts/*.sh docker/*.sh
+
   build-lin:
+    needs: check-scripts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -29,6 +47,7 @@ jobs:
           if-no-files-found: error
           
   build-win:
+    needs: check-scripts
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -50,6 +69,7 @@ jobs:
           if-no-files-found: error
 
   build-x64-mac:
+    needs: check-scripts
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
@@ -72,6 +92,7 @@ jobs:
         run: ls -R -l          
           
   build-arm-mac:
+    needs: check-scripts
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
