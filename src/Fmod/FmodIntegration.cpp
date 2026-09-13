@@ -126,8 +126,13 @@ static int LuaLoadFmodSound(lua_State* L)
         flywithlua::LuaIsRunning = false;
         return 0;
     }
+    if (FmodSounds.size() >= sizeof(fmod_sound_pointer) / sizeof(fmod_sound_pointer[0]) - 1) {
+        flywithlua::logMsg(logToDevCon, "FlyWithLua Warning: FMOD sound limit reached; sound was not registered.");
+        return 0;
+    }
     char fmod_filename_to_load[250];
-    strncpy(fmod_filename_to_load, lua_tostring(L, 1), sizeof(fmod_filename_to_load));
+    strncpy(fmod_filename_to_load, lua_tostring(L, 1), sizeof(fmod_filename_to_load) - 1);
+    fmod_filename_to_load[sizeof(fmod_filename_to_load) - 1] = '\0';
     fmod_sound_index = fmod_sound_index + 1;
 
     if (flywithlua::verbose_logging_mode == 1) {
@@ -215,6 +220,7 @@ static int LuaPlaySoundOnCom1Bus(lua_State* L)
     if ((fmod_index_num < 0) || (fmod_index_num >= int(FmodSounds.size())))
     {
         flywithlua::logMsg(logToDevCon, "FlyWithLua Error: LuaPlayFmodSoundOnCom1Bus() Play Fmod Sound index number out of range.");
+        return 0;
     }
 
     // We need to do this to get the index's lined up and have not found a better way
@@ -338,6 +344,7 @@ static int LuaPlaySoundOnInteriorBus(lua_State* L)
     if ((fmod_index_num < 0) || (fmod_index_num >= int(FmodSounds.size())))
     {
         flywithlua::logMsg(logToDevCon, "FlyWithLua Error: LuaPlayFmodSoundOnInteriorBus() Play Fmod Sound index number out of range.");
+        return 0;
     }
 
     // We need to do this to get the index's lined up and have not found a better way
@@ -462,6 +469,7 @@ static int LuaPlaySoundOnUiBus(lua_State* L)
     if ((fmod_index_num < 0) || (fmod_index_num >= int(FmodSounds.size())))
     {
         flywithlua::logMsg(logToDevCon, "FlyWithLua Error: LuaPlayFmodSoundOnUiBus() Play Fmod Sound index number out of range.");
+        return 0;
     }
 
     // We need to do this to get the index's lined up and have not found a better way
@@ -586,6 +594,7 @@ static int LuaPlaySoundOnMasterBus(lua_State* L)
     if ((fmod_index_num < 0) || (fmod_index_num >= int(FmodSounds.size())))
     {
         flywithlua::logMsg(logToDevCon, "FlyWithLua Error: LuaPlayFmodSoundOnMasterBus() Play Fmod Sound index number out of range.");
+        return 0;
     }
 
     // We need to do this to get the index's lined up and have not found a better way

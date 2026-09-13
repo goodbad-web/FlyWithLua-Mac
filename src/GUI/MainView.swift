@@ -1,5 +1,10 @@
 import SwiftUI
 
+private func flyWithLuaLocalized(_ english: String, _ japanese: String) -> String {
+    let languageCode = Locale.preferredLanguages.first?.split(separator: "-").first
+    return languageCode == "ja" ? japanese : english
+}
+
 struct MainView: View {
     @ObservedObject var state = XPUIState.shared
     
@@ -49,19 +54,19 @@ struct StatusCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Status", systemImage: "info.circle")
+            Label(flyWithLuaLocalized("Status", "状態"), systemImage: "info.circle")
                 .font(.headline)
             
             Divider()
             
             HStack {
-                StatusItem(label: "Altitude", value: String(format: "%.0f ft", state.currentAltitude))
+                StatusItem(label: flyWithLuaLocalized("Altitude", "高度"), value: String(format: "%.0f ft", state.currentAltitude))
                 Divider().frame(height: 30)
-                StatusItem(label: "Scripts", value: "\(state.scriptLoadedCount) / \(state.scriptDiscoveredCount)")
+                StatusItem(label: flyWithLuaLocalized("Scripts", "スクリプト"), value: "\(state.scriptLoadedCount) / \(state.scriptDiscoveredCount)")
                 Divider().frame(height: 30)
-                StatusItem(label: "Failures", value: "\(state.scriptFailedCount)", color: state.scriptFailedCount == 0 ? .green : .orange)
+                StatusItem(label: flyWithLuaLocalized("Failures", "失敗"), value: "\(state.scriptFailedCount)", color: state.scriptFailedCount == 0 ? .green : .orange)
                 Divider().frame(height: 30)
-                StatusItem(label: "State", value: state.isPluginEnabled ? "Active" : "Idle", color: state.isPluginEnabled ? .green : .red)
+                StatusItem(label: flyWithLuaLocalized("State", "状態"), value: state.isPluginEnabled ? flyWithLuaLocalized("Active", "有効") : flyWithLuaLocalized("Idle", "待機"), color: state.isPluginEnabled ? .green : .red)
             }
         }
         .padding()
@@ -94,7 +99,7 @@ struct LogView: View {
     
     var body: some View {
         VStack(alignment: .leading) {
-            Text("Latest Message")
+            Text(flyWithLuaLocalized("Latest Message", "最新メッセージ"))
                 .font(.caption)
                 .foregroundColor(.secondary)
             
@@ -116,7 +121,7 @@ struct ScriptFailureView: View {
             EmptyView()
         } else {
             VStack(alignment: .leading, spacing: 10) {
-                Label("Script Load Failures (\(state.scriptLoadFailures.count))", systemImage: "exclamationmark.triangle.fill")
+                Label(flyWithLuaLocalized("Script Load Failures (\(state.scriptLoadFailures.count))", "スクリプト読み込み失敗 (\(state.scriptLoadFailures.count))"), systemImage: "exclamationmark.triangle.fill")
                     .font(.headline)
                     .foregroundColor(.orange)
 
@@ -161,7 +166,7 @@ struct FooterView: View {
                 XPUIState.shared.updateLastLogMessage("Reloading scripts...")
                 flywithlua_reload_scripts()
             }) {
-                Label("Reload Scripts", systemImage: "arrow.clockwise")
+                Label(flyWithLuaLocalized("Reload Scripts", "スクリプトを再読み込み"), systemImage: "arrow.clockwise")
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(Color.accentColor)

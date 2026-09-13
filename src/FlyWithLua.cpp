@@ -1393,10 +1393,12 @@ static bool ResolveScriptsDirectory() {
     char systemPath[512] = {0};
     XPLMGetSystemPath(systemPath);
     if (systemPath[0] != '\0') {
-        std::string canonical = std::string(systemPath) + "/Resources/plugins/FlyWithLua/Scripts";
+        const std::string runtimeDirectory = flywithlua::JoinPath(
+            std::string(systemPath), "Resources/plugins/FlyWithLua");
+        std::string canonical = flywithlua::JoinPath(runtimeDirectory, "Scripts");
         if (IsExistingDirectory(canonical)) {
             flywithlua::scriptDir = canonical;
-            flywithlua::quarantineDir = std::string(systemPath) + "/Resources/plugins/FlyWithLua/Scripts (Quarantine)";
+            flywithlua::quarantineDir = flywithlua::JoinPath(runtimeDirectory, "Scripts (Quarantine)");
             return true;
         }
     }
@@ -1410,10 +1412,10 @@ static bool ResolveScriptsDirectory() {
             std::string currentDir = path.substr(0, slash);
 
             for (int i = 0; i < 5; ++i) {
-                std::string testPath = currentDir + "/Scripts";
+                std::string testPath = flywithlua::JoinPath(currentDir, "Scripts");
                 if (IsExistingDirectory(testPath)) {
                     flywithlua::scriptDir = testPath;
-                    flywithlua::quarantineDir = currentDir + "/Scripts (Quarantine)";
+                    flywithlua::quarantineDir = flywithlua::JoinPath(currentDir, "Scripts (Quarantine)");
                     return true;
                 }
                 size_t last = currentDir.find_last_of("/");
@@ -1812,6 +1814,11 @@ static bool LuaHIDByteArguments(lua_State* state, int firstIndex, std::vector<un
 }
 
 static int LuaHIDOpen(lua_State* state) {
+    if (!gHIDInitialized) {
+        lua_pushnil(state);
+        return 1;
+    }
+
     if (!lua_isnumber(state, 1) || !lua_isnumber(state, 2)) {
         LogLuaCompatibilityArgumentError("hid_open");
         lua_pushnil(state);
@@ -1838,6 +1845,11 @@ static int LuaHIDOpen(lua_State* state) {
 }
 
 static int LuaHIDOpenPath(lua_State* state) {
+    if (!gHIDInitialized) {
+        lua_pushnil(state);
+        return 1;
+    }
+
     std::string path;
     if (!LuaStringArg(state, 1, path)) {
         LogLuaCompatibilityArgumentError("hid_open_path");
@@ -2416,6 +2428,14 @@ package.path = package.path .. ';__INTERNALS__/?.lua;__INTERNALS__/?/init.lua;__
 
 graphics = require("graphics")
 
+-- Some legacy scripts call the bubble helpers from their first draw callback.
+-- Load them before the legacy .ini is evaluated so an earlier .ini error cannot
+-- leave those globals undefined while the rest of Lua continues to start.
+local bubblesOk, bubblesError = pcall(dofile, INTERNALS_DIRECTORY .. "bubbles.lua")
+if not bubblesOk then
+    mac_native.log_msg("FlyWithLua Warning: Could not load bubbles.lua: " .. tostring(bubblesError))
+end
+
 function logMsg(s)
     mac_native.log_msg(tostring(s))
 end
@@ -2753,6 +2773,9 @@ DataRef = dataref
 	}
     char xplanePath[512];
     XPLMGetSystemPath(xplanePath);
+    // Keep the legacy trailing separator: SaveInitialAssignments.ini builds
+    // paths directly from SYSTEM_DIRECTORY. Callers that append a path use
+    // the separator-aware form below instead of adding another slash.
     lua_pushstring(L, xplanePath);
     lua_setglobal(L, "SYSTEM_DIRECTORY");
 
