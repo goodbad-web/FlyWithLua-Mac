@@ -72,6 +72,7 @@ FMOD_CHANNELGROUP *cg_sdk_master = nullptr;
 // FMOD Studio ------------------------------------------------------------------
 FMOD_STUDIO_SYSTEM *fmod_studio_system_pointer = nullptr;
 FMOD_STUDIO_SYSTEM *fmod_studio_sdk = nullptr;
+static bool fmod_groups_initialized = false;
 
 void FMODErrorHandler(const string &file, int line, FMOD_RESULT result)
 {
@@ -241,7 +242,7 @@ static int LuaPlaySoundOnCom1Bus(lua_State* L)
 
     try
     {
-        if(flywithlua_com1_channel_group != nullptr)
+        if(fmod_system_sdk != nullptr && flywithlua_com1_channel_group != nullptr)
         {
             FMOD_RESULT fwl_result;
             // We are using fwl_soundFMod[Fmod_IndexNo] so we know which sound file to play
@@ -294,6 +295,9 @@ static int LuaStopSoundOnCom1Bus(lua_State* L)
 
 void setCom1Volume(float com1_channel_group_volume)
 {
+    if (flywithlua_com1_channel_group == nullptr) {
+        return;
+    }
     // Set the volume for the FlyWithLua channel group
     FMOD_RESULT fwl_result = FMOD_ChannelGroup_SetVolume(flywithlua_com1_channel_group, com1_channel_group_volume);
     if(FMOD_OK != fwl_result)
@@ -306,6 +310,9 @@ void setCom1Volume(float com1_channel_group_volume)
 
 void setCom1Mute(bool mute_com1_channel_group)
 {
+    if (flywithlua_com1_channel_group == nullptr) {
+        return;
+    }
     // Mute the sound for the FlyWithLua channel group
     FMOD_RESULT fwl_result = FMOD_ChannelGroup_SetMute(flywithlua_com1_channel_group, mute_com1_channel_group);
     if(FMOD_OK != fwl_result)
@@ -358,7 +365,7 @@ static int LuaPlaySoundOnInteriorBus(lua_State* L)
 
     try
     {
-        if(flywithlua_interior_channel_group != nullptr)
+        if(fmod_system_sdk != nullptr && flywithlua_interior_channel_group != nullptr)
         {
             FMOD_RESULT fwl_result;
             // We are using fwl_soundFMod[Fmod_IndexNo] so we know which sound file to play
@@ -411,6 +418,9 @@ static int LuaStopSoundOnInteriorBus(lua_State* L)
 
 void setInteriorVolume(float interior_channel_group_volume)
 {
+    if (flywithlua_interior_channel_group == nullptr) {
+        return;
+    }
     // Set the volume for the FlyWithLua channel group
     FMOD_RESULT fwl_result = FMOD_ChannelGroup_SetVolume(flywithlua_interior_channel_group, interior_channel_group_volume);
     if(FMOD_OK != fwl_result)
@@ -423,6 +433,9 @@ void setInteriorVolume(float interior_channel_group_volume)
 
 void setInteriorMute(bool mute_interior_channel_group)
 {
+    if (flywithlua_interior_channel_group == nullptr) {
+        return;
+    }
     // Mute the sound for the FlyWithLua channel group
     FMOD_RESULT fwl_result = FMOD_ChannelGroup_SetMute(flywithlua_interior_channel_group, mute_interior_channel_group);
     if(FMOD_OK != fwl_result)
@@ -476,7 +489,7 @@ static int LuaPlaySoundOnUiBus(lua_State* L)
 
     try
     {
-        if(flywithlua_ui_channel_group != nullptr)
+        if(fmod_system_sdk != nullptr && flywithlua_ui_channel_group != nullptr)
         {
             FMOD_RESULT fwl_result;
             // We are using fwl_soundFMod[Fmod_IndexNo] so we know which sound file to play
@@ -529,6 +542,9 @@ static int LuaStopSoundOnUiBus(lua_State* L)
 
 void setUiVolume(float ui_channel_group_volume)
 {
+    if (flywithlua_ui_channel_group == nullptr) {
+        return;
+    }
     // Set the volume for the FlyWithLua channel group
     FMOD_RESULT fwl_result = FMOD_ChannelGroup_SetVolume(flywithlua_ui_channel_group, ui_channel_group_volume);
     if(FMOD_OK != fwl_result)
@@ -541,6 +557,9 @@ void setUiVolume(float ui_channel_group_volume)
 
 void setUiMute(bool mute_ui_channel_group)
 {
+    if (flywithlua_ui_channel_group == nullptr) {
+        return;
+    }
     // Mute the sound for the FlyWithLua channel group
     FMOD_RESULT fwl_result = FMOD_ChannelGroup_SetMute(flywithlua_ui_channel_group, mute_ui_channel_group);
     if(FMOD_OK != fwl_result)
@@ -594,7 +613,7 @@ static int LuaPlaySoundOnMasterBus(lua_State* L)
 
     try
     {
-        if(flywithlua_master_channel_group != nullptr)
+        if(fmod_system_sdk != nullptr && flywithlua_master_channel_group != nullptr)
         {
             FMOD_RESULT fwl_result;
             // We are using fwl_soundFMod[Fmod_IndexNo] so we know which sound file to play
@@ -647,6 +666,9 @@ static int LuaStopSoundOnMasterBus(lua_State* L)
 
 void setMasterVolume(float master_channel_group_volume)
 {
+    if (flywithlua_master_channel_group == nullptr) {
+        return;
+    }
     // Set the volume for the FlyWithLua channel group
     FMOD_RESULT fwl_result = FMOD_ChannelGroup_SetVolume(flywithlua_master_channel_group, master_channel_group_volume);
     if(FMOD_OK != fwl_result)
@@ -659,6 +681,9 @@ void setMasterVolume(float master_channel_group_volume)
 
 void setMasterMute(bool mute_master_channel_group)
 {
+    if (flywithlua_master_channel_group == nullptr) {
+        return;
+    }
     // Mute the sound for the FlyWithLua channel group
     FMOD_RESULT fwl_result = FMOD_ChannelGroup_SetMute(flywithlua_master_channel_group, mute_master_channel_group);
     if(FMOD_OK != fwl_result)
@@ -802,6 +827,10 @@ static bool attachCustomChannelGroup(const char *name,
 
 int fmod_initialization()
 {
+    if (fmod_groups_initialized) {
+        return 1;
+    }
+
     // Use the X-Plane 12 SDK sound API to get a pointer to the FMOD studio system
     fmod_studio_sdk = XPLMGetFMODStudio();
     if(nullptr == fmod_studio_sdk)
@@ -830,6 +859,7 @@ int fmod_initialization()
     attachCustomChannelGroup("FlyWithLua_Master_Channel", xplm_Master,
                              &flywithlua_master_channel_group, &cg_sdk_master);
 
+    fmod_groups_initialized = true;
     XPLMDebugString("FlyWithLua Info: FMOD channel group initialization pass completed after bank load.\n");
     return 1;
 }
@@ -855,6 +885,7 @@ int fmod_uninitialize()
     cg_sdk_audio_interior = nullptr;
     cg_sdk_audio_ui = nullptr;
     cg_sdk_master = nullptr;
+    fmod_groups_initialized = false;
 
     sprintf(buf4, "FlyWithLua Info: fmod_uninitialize()  Should be 0 now FmodSounds.size =  %d\n", int(FmodSounds.size()));
     XPLMDebugString(buf4);

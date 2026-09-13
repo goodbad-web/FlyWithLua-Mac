@@ -81,6 +81,30 @@ public func flywithlua_update_script_load_results(_ jsonPayload: UnsafePointer<C
     }
 }
 
+@_cdecl("flywithlua_update_script_load_summary")
+public func flywithlua_update_script_load_summary(_ discovered: Int32,
+                                                  _ loaded: Int32,
+                                                  _ failed: Int32,
+                                                  _ jsonPayload: UnsafePointer<CChar>?) {
+    var failures: [XPUIState.ScriptLoadFailure] = []
+    if let jsonPayload {
+        let payload = String(cString: jsonPayload)
+        if let data = payload.data(using: .utf8) {
+            do {
+                let decoded = try JSONDecoder().decode([ScriptLoadFailurePayload].self, from: data)
+                failures = decoded.map { XPUIState.ScriptLoadFailure(fileName: $0.fileName, message: $0.message) }
+            } catch {
+                XPLMDebugString("FlyWithLua-Mac Warning: Failed to parse script load summary: " + error.localizedDescription + "\n")
+            }
+        }
+    }
+
+    XPUIState.shared.updateScriptLoadSummary(discovered: Int(discovered),
+                                             loaded: Int(loaded),
+                                             failed: Int(failed),
+                                             failures: failures)
+}
+
 @_cdecl("flywithlua_update_last_log_message")
 public func flywithlua_update_last_log_message(_ message: UnsafePointer<CChar>?) {
     guard let message else { return }

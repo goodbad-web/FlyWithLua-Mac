@@ -57,7 +57,9 @@ struct StatusCard: View {
             HStack {
                 StatusItem(label: "Altitude", value: String(format: "%.0f ft", state.currentAltitude))
                 Divider().frame(height: 30)
-                StatusItem(label: "Scripts", value: "\(state.scriptCount)")
+                StatusItem(label: "Scripts", value: "\(state.scriptLoadedCount) / \(state.scriptDiscoveredCount)")
+                Divider().frame(height: 30)
+                StatusItem(label: "Failures", value: "\(state.scriptFailedCount)", color: state.scriptFailedCount == 0 ? .green : .orange)
                 Divider().frame(height: 30)
                 StatusItem(label: "State", value: state.isPluginEnabled ? "Active" : "Idle", color: state.isPluginEnabled ? .green : .red)
             }
@@ -155,8 +157,7 @@ struct FooterView: View {
     var body: some View {
         HStack {
             Button(action: {
-                XPUIState.shared.clearScriptLoadFailures()
-                XPUIState.shared.updateScriptCount(0)
+                XPUIState.shared.resetScriptLoadSummary()
                 XPUIState.shared.updateLastLogMessage("Reloading scripts...")
                 flywithlua_reload_scripts()
             }) {

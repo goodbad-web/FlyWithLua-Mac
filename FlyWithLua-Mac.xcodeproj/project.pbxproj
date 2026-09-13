@@ -93,6 +93,7 @@
 		E8CC0F876B00D23144CB46F5 /* except.c in Sources */ = {isa = PBXBuildFile; fileRef = D52DDBC2CB50A48802BD7FE1 /* except.c */; };
 		E8FAA226961185D4E1270CB9 /* PluginConfigActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26BFADA132ABEB32D13043FA /* PluginConfigActor.swift */; };
 		EB3BF19023B90354DDEFBB58 /* imgui.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7C4E2794EE0A1B728C91461B /* imgui.cpp */; };
+		EC5CDCE42DA89F4C315E9C6B /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D076CA1986DC5D7417D63E9B /* IOKit.framework */; };
 		EECB08E8A81E2570076538AE /* tcp.c in Sources */ = {isa = PBXBuildFile; fileRef = CF6198FA8D78F1D73AE7A8F5 /* tcp.c */; };
 		F4A4E74257D30C92CA057E7D /* libfmod.so.13.10 in Resources */ = {isa = PBXBuildFile; fileRef = F0A7E23F2658B0CFA39C76C8 /* libfmod.so.13.10 */; };
 		F59A15BC7953EEAC28388ED7 /* libfmod.dylib in Resources */ = {isa = PBXBuildFile; fileRef = F2F0007BB4A39215377F2B14 /* libfmod.dylib */; };
@@ -292,6 +293,7 @@
 		CF6198FA8D78F1D73AE7A8F5 /* tcp.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = tcp.c; sourceTree = "<group>"; };
 		CFB8356B8B1503A1B06A7641 /* usocket.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = usocket.c; sourceTree = "<group>"; };
 		D0574CFDE477DBB57DD1D5A9 /* FmodIntegration.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = FmodIntegration.cpp; sourceTree = "<group>"; };
+		D076CA1986DC5D7417D63E9B /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = ../../../../System/Library/Frameworks/IOKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		D0AFE45B34A4A383B01E085F /* fmod_dsp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod_dsp.h; sourceTree = "<group>"; };
 		D0DF7BADFDEC073B0579D1D5 /* unix.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = unix.c; sourceTree = "<group>"; };
 		D12D92F76CEA63C2064B3CC2 /* imgui_internal.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = imgui_internal.h; sourceTree = "<group>"; };
@@ -340,6 +342,7 @@
 			files = (
 				2F39056A242E2568FAC69C9E /* CoreFoundation.framework in Frameworks */,
 				A1AF070EBBDD0F7D0BB363F7 /* Carbon.framework in Frameworks */,
+				EC5CDCE42DA89F4C315E9C6B /* IOKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -796,6 +799,7 @@
 			children = (
 				185ADD1F899EB45B628E1F20 /* Carbon.framework */,
 				D2E1BF901F09F00253A37CD5 /* CoreFoundation.framework */,
+				D076CA1986DC5D7417D63E9B /* IOKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";

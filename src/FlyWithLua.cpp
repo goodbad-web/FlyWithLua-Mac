@@ -6,8 +6,10 @@
 #include "XPLMGraphics.h"
 #include "XPLMDataAccess.h"
 #include "XPLMMenus.h"
+#include "XPLMPlanes.h"
 #include "FloatingWindows/FLWIntegration.h"
 #include "Fmod/FmodIntegration.h"
+#include "hidapi/hidapi.h"
 #ifdef __APPLE__
 #include <OpenGL/gl.h>
 #else
@@ -42,6 +44,9 @@ static int gFlyWithLuaMacrosMenuItem = -1;
 static XPLMMenuID gFlyWithLuaMacrosMenu = nullptr;
 static XPLMCommandRef gFlyWithLuaCommand = nullptr;
 static XPLMDataRef gAltitudeDataRef = nullptr;
+static XPLMDataRef gJoystickButtonDataRef = nullptr;
+static XPLMDataRef gPlaneICAODataRef = nullptr;
+static XPLMDataRef gPlaneTailNumberDataRef = nullptr;
 static int gReloadMenuItem = -1;
 static int gWriteDebugMenuItem = -1;
 static int gReturnQuarantineMenuItem = -1;
@@ -59,9 +64,31 @@ struct FlyWithLuaCommandBinding {
     std::string beginCode;
     std::string continueCode;
     std::string endCode;
+    std::string activateCode;
+    std::string deactivateCode;
+    bool isLegacyMacro = false;
+    bool isSwitch = false;
+    bool isActive = false;
+    int menuItemIndex = -1;
     XPLMCommandRef commandRef = nullptr;
 };
 static std::unordered_map<std::string, std::unique_ptr<FlyWithLuaCommandBinding>> gFlyWithLuaCommandBindings;
+struct FlyWithLuaPositiveEdgeFlip {
+    int button = 0;
+    XPLMDataRef dataRef = nullptr;
+    XPLMDataTypeID dataType = xplmType_Unknown;
+    int index = 0;
+    int offInt = 0;
+    int onInt = 1;
+    float offFloat = 0.0f;
+    float onFloat = 1.0f;
+    double offDouble = 0.0;
+    double onDouble = 1.0;
+    bool lastPressed = false;
+};
+static std::vector<FlyWithLuaPositiveEdgeFlip> gPositiveEdgeFlips;
+static std::vector<hid_device*> gOpenHIDDevices;
+static constexpr size_t kHIDReportBufferSize = 4096;
 static std::string gDrawCommand;
 static std::string gEveryFrameCommand;
 static std::string gOftenCommand;
@@ -70,17 +97,25 @@ static std::string gOnExitCommand;
 static std::string gMouseClickCommand;
 static std::string gMouseWheelCommand;
 static float gSometimesAccumulator = 0.0f;
+static int gDiscoveredScriptCount = 0;
+static int gLoadedScriptCount = 0;
+static int gFailedScriptCount = 0;
 
 extern "C" void flywithlua_toggle_window(void);
 extern "C" void flywithlua_update_current_altitude(double altitude);
 extern "C" void flywithlua_update_script_count(int count);
 extern "C" void flywithlua_clear_script_load_failures(void);
 extern "C" void flywithlua_update_script_load_results(const char* jsonPayload);
+extern "C" void flywithlua_update_script_load_summary(int discovered, int loaded, int failed, const char* jsonPayload);
 extern "C" void flywithlua_update_last_log_message(const char* message);
 extern "C" void flywithlua_reload_scripts(void);
+extern "C" int luaopen_LuaXML_lib(lua_State* L);
 extern "C" int luaopen_socket_core(lua_State* L);
 extern "C" int luaopen_mime_core(lua_State* L);
+extern "C" int luaopen_socket_unix(lua_State* L);
+extern "C" int luaopen_socket_serial(lua_State* L);
 static bool InitializeLuaRuntime(bool registerFlightLoop);
+static void UpdateLuaAircraftGlobals();
 extern "C" void register_swift_bridge(lua_State* L);
 float FlightLoopCallback(float inElapsedSinceLastCall, float inElapsedTimeSinceLastFlightLoop, int inCounter, void * inRefcon);
 int FlyWithLuaDrawCallback(XPLMDrawingPhase inPhase, int inIsBefore, void * inRefcon);
@@ -95,6 +130,35 @@ static void SetDeveloperMode(bool enabled);
 static void SetVerboseLoggingMode(bool enabled);
 static void RefreshFlyWithLuaMacrosMenu();
 static void MarkFlyWithLuaMacrosMenuDirty();
+static void CloseAllOpenHIDDevices();
+static int LuaXPLMFindDataRef(lua_State* state);
+static int LuaXPLMGetDataRefTypes(lua_State* state);
+static int LuaXPLMGetDatai(lua_State* state);
+static int LuaXPLMGetDataf(lua_State* state);
+static int LuaXPLMGetDatad(lua_State* state);
+static int LuaXPLMSetDatai(lua_State* state);
+static int LuaXPLMSetDataf(lua_State* state);
+static int LuaXPLMSetDatad(lua_State* state);
+static int LuaXPLMGetDatavi(lua_State* state);
+static int LuaXPLMGetDatavf(lua_State* state);
+static int LuaXPLMSetDatavi(lua_State* state);
+static int LuaXPLMSetDatavf(lua_State* state);
+static int LuaCreateHIDTable(lua_State* state);
+static int LuaHIDOpen(lua_State* state);
+static int LuaHIDOpenPath(lua_State* state);
+static int LuaHIDClose(lua_State* state);
+static int LuaHIDWrite(lua_State* state);
+static int LuaHIDRead(lua_State* state);
+static int LuaHIDReadTimeout(lua_State* state);
+static int LuaHIDSetNonblocking(lua_State* state);
+static int LuaHIDSendFeatureReport(lua_State* state);
+static int LuaHIDSendFilledFeatureReport(lua_State* state);
+static int LuaHIDGetFeatureReport(lua_State* state);
+static int LuaAddMacro(lua_State* state);
+static int LuaActivateMacro(lua_State* state);
+static int LuaDeactivateMacro(lua_State* state);
+static int LuaCreatePositiveEdgeFlip(lua_State* state);
+static void PollPositiveEdgeFlips();
 
 // LuaJIT 2.1 exposes the Lua 5.1 API and does not provide luaL_requiref.
 // Registering the statically linked modules in package.preload gives require()
@@ -116,6 +180,39 @@ static bool RegisterLuaBuiltinModule(lua_State* state, const char* moduleName, l
     lua_setfield(state, -2, moduleName);
     lua_pop(state, 2);
     return true;
+}
+
+static std::string ReadXPlaneStringDataRef(XPLMDataRef dataRef) {
+    if (!dataRef) {
+        return {};
+    }
+
+    std::vector<char> buffer(256, '\0');
+    XPLMGetDatab(dataRef, buffer.data(), 0, static_cast<int>(buffer.size() - 1));
+    buffer.back() = '\0';
+    return std::string(buffer.data());
+}
+
+static void UpdateLuaAircraftGlobals() {
+    if (!L) {
+        return;
+    }
+
+    char aircraftFileName[256] = {0};
+    char aircraftPath[512] = {0};
+    XPLMGetNthAircraftModel(XPLM_USER_AIRCRAFT, aircraftFileName, aircraftPath);
+
+    lua_pushstring(L, aircraftFileName);
+    lua_setglobal(L, "AIRCRAFT_FILENAME");
+    lua_pushstring(L, aircraftPath);
+    lua_setglobal(L, "AIRCRAFT_PATH");
+
+    const std::string planeICAO = ReadXPlaneStringDataRef(gPlaneICAODataRef);
+    const std::string planeTailNumber = ReadXPlaneStringDataRef(gPlaneTailNumberDataRef);
+    lua_pushstring(L, planeICAO.c_str());
+    lua_setglobal(L, "PLANE_ICAO");
+    lua_pushstring(L, planeTailNumber.c_str());
+    lua_setglobal(L, "PLANE_TAILNUMBER");
 }
 
 static int FlyWithLuaMenuCommandHandler(XPLMCommandRef /*inCommand*/, XPLMCommandPhase inPhase, void * /*inRefcon*/) {
@@ -205,7 +302,11 @@ static void RefreshFlyWithLuaMacrosMenu() {
 
     for (FlyWithLuaCommandBinding* binding : bindings) {
         std::string label = FlyWithLuaMacroDisplayName(*binding);
-        XPLMAppendMenuItem(gFlyWithLuaMacrosMenu, label.c_str(), binding, 1);
+        binding->menuItemIndex = XPLMAppendMenuItem(gFlyWithLuaMacrosMenu, label.c_str(), binding, 1);
+        if (binding->isLegacyMacro && binding->isSwitch && binding->menuItemIndex >= 0) {
+            XPLMCheckMenuItem(gFlyWithLuaMacrosMenu, binding->menuItemIndex,
+                              binding->isActive ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+        }
     }
 
     gMacroMenuNeedsRefresh = false;
@@ -254,14 +355,30 @@ static void FlyWithLuaMenuHandler(void* /*inMenuRef*/, void* inItemRef) {
 
 static void FlyWithLuaMacroMenuHandler(void* /*inMenuRef*/, void* inItemRef) {
     auto* binding = static_cast<FlyWithLuaCommandBinding*>(inItemRef);
-    if (!binding || !binding->commandRef) {
+    if (!binding) {
         return;
     }
 
-    XPLMCommandOnce(binding->commandRef);
+    if (binding->isLegacyMacro) {
+        if (binding->isSwitch) {
+            binding->isActive = !binding->isActive;
+            XPLMCheckMenuItem(gFlyWithLuaMacrosMenu, binding->menuItemIndex,
+                              binding->isActive ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+            RunLuaStringChunk(binding->isActive ? binding->activateCode : binding->deactivateCode,
+                              (binding->name + (binding->isActive ? ":activate" : ":deactivate")).c_str());
+        } else {
+            RunLuaStringChunk(binding->activateCode, (binding->name + ":activate").c_str());
+        }
+        return;
+    }
+
+    if (binding->commandRef) {
+        XPLMCommandOnce(binding->commandRef);
+    }
 }
 
 static void ClearFlyWithLuaCommands() {
+    DestroyFlyWithLuaMacrosMenu();
     for (auto& entry : gFlyWithLuaCommandBindings) {
         FlyWithLuaCommandBinding* binding = entry.second.get();
         if (binding && binding->commandRef) {
@@ -315,6 +432,94 @@ static int LuaCreateCommandCallback(lua_State* state) {
     XPLMRegisterCommandHandler(binding->commandRef, FlyWithLuaScriptCommandHandler, 0, bindingPtr);
     gFlyWithLuaCommandBindings.emplace(name, std::move(binding));
     MarkFlyWithLuaMacrosMenuDirty();
+    return 0;
+}
+
+static int LuaAddMacro(lua_State* state) {
+    std::string name;
+    std::string activateCode;
+    std::string deactivateCode;
+    if (!LuaStringArg(state, 1, name) || !LuaStringArg(state, 2, activateCode)) {
+        XPLMDebugString("FlyWithLua-Mac Warning: add_macro() expects at least two string arguments.\n");
+        return 0;
+    }
+
+    const bool isSwitch = LuaStringArg(state, 3, deactivateCode);
+    auto existing = gFlyWithLuaCommandBindings.find(name);
+    if (existing != gFlyWithLuaCommandBindings.end()) {
+        XPLMDebugString(("FlyWithLua-Mac Warning: add_macro() duplicate ignored: " + name + "\n").c_str());
+        return 0;
+    }
+
+    auto binding = std::make_unique<FlyWithLuaCommandBinding>();
+    binding->name = name;
+    binding->description = name;
+    binding->activateCode = activateCode;
+    binding->deactivateCode = deactivateCode;
+    binding->isLegacyMacro = true;
+    binding->isSwitch = isSwitch;
+
+    bool startActive = false;
+    std::string initialState;
+    if (LuaStringArg(state, 4, initialState)) {
+        startActive = initialState == "activate";
+    }
+    binding->isActive = startActive;
+
+    FlyWithLuaCommandBinding* bindingPtr = binding.get();
+    gFlyWithLuaCommandBindings.emplace(name, std::move(binding));
+    MarkFlyWithLuaMacrosMenuDirty();
+
+    if (isSwitch) {
+        if (gFlyWithLuaMacrosMenu && bindingPtr->menuItemIndex >= 0) {
+            XPLMCheckMenuItem(gFlyWithLuaMacrosMenu, bindingPtr->menuItemIndex,
+                              startActive ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+        }
+        RunLuaStringChunk(startActive ? bindingPtr->activateCode : bindingPtr->deactivateCode,
+                          (name + (startActive ? ":activate" : ":deactivate")).c_str());
+    }
+    return 0;
+}
+
+static int LuaActivateMacro(lua_State* state) {
+    std::string name;
+    if (!LuaStringArg(state, 1, name)) {
+        XPLMDebugString("FlyWithLua-Mac Warning: activate_macro() expects a string argument.\n");
+        return 0;
+    }
+
+    auto it = gFlyWithLuaCommandBindings.find(name);
+    if (it == gFlyWithLuaCommandBindings.end() || !it->second->isLegacyMacro || !it->second->isSwitch) {
+        return 0;
+    }
+
+    FlyWithLuaCommandBinding& binding = *it->second;
+    binding.isActive = true;
+    if (gFlyWithLuaMacrosMenu && binding.menuItemIndex >= 0) {
+        XPLMCheckMenuItem(gFlyWithLuaMacrosMenu, binding.menuItemIndex, xplm_Menu_Checked);
+    }
+    RunLuaStringChunk(binding.activateCode, (name + ":activate").c_str());
+    return 0;
+}
+
+static int LuaDeactivateMacro(lua_State* state) {
+    std::string name;
+    if (!LuaStringArg(state, 1, name)) {
+        XPLMDebugString("FlyWithLua-Mac Warning: deactivate_macro() expects a string argument.\n");
+        return 0;
+    }
+
+    auto it = gFlyWithLuaCommandBindings.find(name);
+    if (it == gFlyWithLuaCommandBindings.end() || !it->second->isLegacyMacro || !it->second->isSwitch) {
+        return 0;
+    }
+
+    FlyWithLuaCommandBinding& binding = *it->second;
+    binding.isActive = false;
+    if (gFlyWithLuaMacrosMenu && binding.menuItemIndex >= 0) {
+        XPLMCheckMenuItem(gFlyWithLuaMacrosMenu, binding.menuItemIndex, xplm_Menu_Unchecked);
+    }
+    RunLuaStringChunk(binding.deactivateCode, (name + ":deactivate").c_str());
     return 0;
 }
 
@@ -384,6 +589,9 @@ static void WriteDebugFile() {
     debugFile << "Developer mode: " << (flywithlua::developer_mode ? "true" : "false") << "\n";
     debugFile << "Verbose logging: " << (flywithlua::verbose_logging_mode ? "true" : "false") << "\n";
     debugFile << "Bad function script: " << (flywithlua::found_bad_function_script ? "true" : "false") << "\n\n";
+    debugFile << "Scripts discovered: " << gDiscoveredScriptCount << "\n";
+    debugFile << "Scripts loaded: " << gLoadedScriptCount << "\n";
+    debugFile << "Scripts failed: " << gFailedScriptCount << "\n\n";
     debugFile << "*** Draw callback ***\n" << gDrawCommand << "\n";
     debugFile << "*** Every frame callback ***\n" << gEveryFrameCommand << "\n";
     debugFile << "*** Often callback ***\n" << gOftenCommand << "\n";
@@ -398,11 +606,20 @@ static void WriteDebugFile() {
     } else {
         for (const auto& entry : gFlyWithLuaCommandBindings) {
             const auto& binding = *entry.second;
-            debugFile << "Command: " << binding.name << "\n";
+            debugFile << (binding.isLegacyMacro ? "Macro: " : "Command: ") << binding.name << "\n";
             debugFile << "Description: " << binding.description << "\n";
-            debugFile << "Begin: " << binding.beginCode << "\n";
-            debugFile << "Continue: " << binding.continueCode << "\n";
-            debugFile << "End: " << binding.endCode << "\n\n";
+            if (binding.isLegacyMacro) {
+                debugFile << "Activate: " << binding.activateCode << "\n";
+                if (binding.isSwitch) {
+                    debugFile << "Deactivate: " << binding.deactivateCode << "\n";
+                    debugFile << "Active: " << (binding.isActive ? "true" : "false") << "\n";
+                }
+            } else {
+                debugFile << "Begin: " << binding.beginCode << "\n";
+                debugFile << "Continue: " << binding.continueCode << "\n";
+                debugFile << "End: " << binding.endCode << "\n";
+            }
+            debugFile << "\n";
         }
     }
 
@@ -947,6 +1164,704 @@ static bool ResolveScriptsDirectory() {
     return false;
 }
 
+static bool LuaDataRefArgument(lua_State* state, int index, XPLMDataRef& dataRef) {
+    if (!lua_islightuserdata(state, index)) {
+        return false;
+    }
+
+    dataRef = lua_touserdata(state, index);
+    return dataRef != nullptr;
+}
+
+static void LogLuaCompatibilityArgumentError(const char* functionName) {
+    flywithlua::logMsg(logToDevCon, std::string("FlyWithLua Error: Wrong arguments to function ") + functionName + ".");
+}
+
+static int LuaXPLMFindDataRef(lua_State* state) {
+    std::string name;
+    if (!LuaStringArg(state, 1, name)) {
+        LogLuaCompatibilityArgumentError("XPLMFindDataRef");
+        lua_pushnil(state);
+        return 1;
+    }
+
+    XPLMDataRef dataRef = XPLMFindDataRef(name.c_str());
+    if (dataRef) {
+        lua_pushlightuserdata(state, dataRef);
+    } else {
+        lua_pushnil(state);
+    }
+    return 1;
+}
+
+static int LuaXPLMGetDataRefTypes(lua_State* state) {
+    XPLMDataRef dataRef = nullptr;
+    if (!LuaDataRefArgument(state, 1, dataRef)) {
+        LogLuaCompatibilityArgumentError("XPLMGetDataRefTypes");
+        lua_pushinteger(state, xplmType_Unknown);
+        return 1;
+    }
+
+    lua_pushinteger(state, XPLMGetDataRefTypes(dataRef));
+    return 1;
+}
+
+static int LuaXPLMGetDatai(lua_State* state) {
+    XPLMDataRef dataRef = nullptr;
+    if (!LuaDataRefArgument(state, 1, dataRef)) {
+        LogLuaCompatibilityArgumentError("XPLMGetDatai");
+        lua_pushinteger(state, 0);
+        return 1;
+    }
+
+    lua_pushinteger(state, XPLMGetDatai(dataRef));
+    return 1;
+}
+
+static int LuaXPLMGetDataf(lua_State* state) {
+    XPLMDataRef dataRef = nullptr;
+    if (!LuaDataRefArgument(state, 1, dataRef)) {
+        LogLuaCompatibilityArgumentError("XPLMGetDataf");
+        lua_pushnumber(state, 0.0);
+        return 1;
+    }
+
+    lua_pushnumber(state, XPLMGetDataf(dataRef));
+    return 1;
+}
+
+static int LuaXPLMGetDatad(lua_State* state) {
+    XPLMDataRef dataRef = nullptr;
+    if (!LuaDataRefArgument(state, 1, dataRef)) {
+        LogLuaCompatibilityArgumentError("XPLMGetDatad");
+        lua_pushnumber(state, 0.0);
+        return 1;
+    }
+
+    lua_pushnumber(state, XPLMGetDatad(dataRef));
+    return 1;
+}
+
+static int LuaXPLMSetDatai(lua_State* state) {
+    XPLMDataRef dataRef = nullptr;
+    if (!LuaDataRefArgument(state, 1, dataRef) || !lua_isnumber(state, 2)) {
+        LogLuaCompatibilityArgumentError("XPLMSetDatai");
+        return 0;
+    }
+
+    XPLMSetDatai(dataRef, static_cast<int>(lua_tointeger(state, 2)));
+    return 0;
+}
+
+static int LuaXPLMSetDataf(lua_State* state) {
+    XPLMDataRef dataRef = nullptr;
+    if (!LuaDataRefArgument(state, 1, dataRef) || !lua_isnumber(state, 2)) {
+        LogLuaCompatibilityArgumentError("XPLMSetDataf");
+        return 0;
+    }
+
+    XPLMSetDataf(dataRef, static_cast<float>(lua_tonumber(state, 2)));
+    return 0;
+}
+
+static int LuaXPLMSetDatad(lua_State* state) {
+    XPLMDataRef dataRef = nullptr;
+    if (!LuaDataRefArgument(state, 1, dataRef) || !lua_isnumber(state, 2)) {
+        LogLuaCompatibilityArgumentError("XPLMSetDatad");
+        return 0;
+    }
+
+    XPLMSetDatad(dataRef, lua_tonumber(state, 2));
+    return 0;
+}
+
+static bool LuaArrayArguments(lua_State* state,
+                              const char* functionName,
+                              XPLMDataRef& dataRef,
+                              int& offset,
+                              int& count) {
+    if (!LuaDataRefArgument(state, 1, dataRef) ||
+        !lua_isnumber(state, 2) ||
+        !lua_isnumber(state, 3)) {
+        LogLuaCompatibilityArgumentError(functionName);
+        return false;
+    }
+
+    offset = static_cast<int>(lua_tointeger(state, 2));
+    count = static_cast<int>(lua_tointeger(state, 3));
+    if (offset < 0 || count < 0 || count > static_cast<int>(kHIDReportBufferSize)) {
+        flywithlua::logMsg(logToDevCon, std::string("FlyWithLua Error: Invalid array range for ") + functionName + ".");
+        return false;
+    }
+    return true;
+}
+
+static bool LuaSetArrayArguments(lua_State* state,
+                                 const char* functionName,
+                                 XPLMDataRef& dataRef,
+                                 int& offset,
+                                 int& count) {
+    if (!LuaDataRefArgument(state, 1, dataRef) ||
+        !lua_istable(state, 2) ||
+        !lua_isnumber(state, 3) ||
+        !lua_isnumber(state, 4)) {
+        LogLuaCompatibilityArgumentError(functionName);
+        return false;
+    }
+
+    offset = static_cast<int>(lua_tointeger(state, 3));
+    count = static_cast<int>(lua_tointeger(state, 4));
+    if (offset < 0 || count < 0 || count > static_cast<int>(kHIDReportBufferSize)) {
+        flywithlua::logMsg(logToDevCon, std::string("FlyWithLua Error: Invalid array range for ") + functionName + ".");
+        return false;
+    }
+    return true;
+}
+
+static int LuaXPLMGetDatavi(lua_State* state) {
+    XPLMDataRef dataRef = nullptr;
+    int offset = 0;
+    int count = 0;
+    if (!LuaArrayArguments(state, "XPLMGetDatavi", dataRef, offset, count)) {
+        return 0;
+    }
+
+    std::vector<int> values(static_cast<size_t>(count), 0);
+    const int actualCount = XPLMGetDatavi(dataRef, count > 0 ? values.data() : nullptr, offset, count);
+    const int safeCount = std::max(0, std::min(actualCount, count));
+    lua_createtable(state, safeCount, 0);
+    for (int index = 0; index < safeCount; ++index) {
+        lua_pushinteger(state, offset + index);
+        lua_pushinteger(state, values[static_cast<size_t>(index)]);
+        lua_settable(state, -3);
+    }
+    return 1;
+}
+
+static int LuaXPLMGetDatavf(lua_State* state) {
+    XPLMDataRef dataRef = nullptr;
+    int offset = 0;
+    int count = 0;
+    if (!LuaArrayArguments(state, "XPLMGetDatavf", dataRef, offset, count)) {
+        return 0;
+    }
+
+    std::vector<float> values(static_cast<size_t>(count), 0.0f);
+    const int actualCount = XPLMGetDatavf(dataRef, count > 0 ? values.data() : nullptr, offset, count);
+    const int safeCount = std::max(0, std::min(actualCount, count));
+    lua_createtable(state, safeCount, 0);
+    for (int index = 0; index < safeCount; ++index) {
+        lua_pushinteger(state, offset + index);
+        lua_pushnumber(state, values[static_cast<size_t>(index)]);
+        lua_settable(state, -3);
+    }
+    return 1;
+}
+
+static bool LuaArrayValues(lua_State* state, int tableIndex, int offset, int count, int* values) {
+    if (!lua_istable(state, tableIndex)) {
+        return false;
+    }
+
+    for (int index = 0; index < count; ++index) {
+        lua_rawgeti(state, tableIndex, offset + index);
+        if (!lua_isnumber(state, -1)) {
+            lua_pop(state, 1);
+            return false;
+        }
+        values[index] = static_cast<int>(lua_tointeger(state, -1));
+        lua_pop(state, 1);
+    }
+    return true;
+}
+
+static bool LuaArrayValues(lua_State* state, int tableIndex, int offset, int count, float* values) {
+    if (!lua_istable(state, tableIndex)) {
+        return false;
+    }
+
+    for (int index = 0; index < count; ++index) {
+        lua_rawgeti(state, tableIndex, offset + index);
+        if (!lua_isnumber(state, -1)) {
+            lua_pop(state, 1);
+            return false;
+        }
+        values[index] = static_cast<float>(lua_tonumber(state, -1));
+        lua_pop(state, 1);
+    }
+    return true;
+}
+
+static int LuaXPLMSetDatavi(lua_State* state) {
+    XPLMDataRef dataRef = nullptr;
+    int offset = 0;
+    int count = 0;
+    if (!LuaSetArrayArguments(state, "XPLMSetDatavi", dataRef, offset, count)) {
+        return 0;
+    }
+
+    std::vector<int> values(static_cast<size_t>(count), 0);
+    if (!LuaArrayValues(state, 2, offset, count, values.data())) {
+        LogLuaCompatibilityArgumentError("XPLMSetDatavi");
+        return 0;
+    }
+    XPLMSetDatavi(dataRef, values.data(), offset, count);
+    return 0;
+}
+
+static int LuaXPLMSetDatavf(lua_State* state) {
+    XPLMDataRef dataRef = nullptr;
+    int offset = 0;
+    int count = 0;
+    if (!LuaSetArrayArguments(state, "XPLMSetDatavf", dataRef, offset, count)) {
+        return 0;
+    }
+
+    std::vector<float> values(static_cast<size_t>(count), 0.0f);
+    if (!LuaArrayValues(state, 2, offset, count, values.data())) {
+        LogLuaCompatibilityArgumentError("XPLMSetDatavf");
+        return 0;
+    }
+    XPLMSetDatavf(dataRef, values.data(), offset, count);
+    return 0;
+}
+
+static bool LuaHIDDeviceArgument(lua_State* state, int index, hid_device*& device) {
+    if (!lua_islightuserdata(state, index)) {
+        return false;
+    }
+    device = static_cast<hid_device*>(lua_touserdata(state, index));
+    return device != nullptr;
+}
+
+static void TrackHIDDevice(hid_device* device) {
+    if (device && std::find(gOpenHIDDevices.begin(), gOpenHIDDevices.end(), device) == gOpenHIDDevices.end()) {
+        gOpenHIDDevices.push_back(device);
+    }
+}
+
+static void UntrackHIDDevice(hid_device* device) {
+    gOpenHIDDevices.erase(std::remove(gOpenHIDDevices.begin(), gOpenHIDDevices.end(), device), gOpenHIDDevices.end());
+}
+
+static void CloseAllOpenHIDDevices() {
+    std::vector<hid_device*> devices;
+    devices.swap(gOpenHIDDevices);
+    for (hid_device* device : devices) {
+        if (device) {
+            hid_close(device);
+        }
+    }
+}
+
+static std::string HIDWideString(const wchar_t* value) {
+    if (!value) {
+        return {};
+    }
+
+    std::string result;
+    for (const wchar_t* character = value; *character != L'\0'; ++character) {
+        const wchar_t codePoint = *character;
+        result.push_back(codePoint >= 32 && codePoint <= 126 ? static_cast<char>(codePoint) : '?');
+    }
+    return result;
+}
+
+static void SetHIDTableField(lua_State* state, const char* key, int value) {
+    lua_pushstring(state, key);
+    lua_pushinteger(state, value);
+    lua_settable(state, -3);
+}
+
+static void SetHIDTableField(lua_State* state, const char* key, const char* value) {
+    lua_pushstring(state, key);
+    lua_pushstring(state, value ? value : "");
+    lua_settable(state, -3);
+}
+
+static int LuaCreateHIDTable(lua_State* state) {
+    lua_newtable(state);
+    int count = 0;
+    hid_device_info* devices = hid_enumerate(0, 0);
+    for (hid_device_info* device = devices; device; device = device->next) {
+        ++count;
+        lua_newtable(state);
+        SetHIDTableField(state, "vendor_id", device->vendor_id);
+        SetHIDTableField(state, "product_id", device->product_id);
+        SetHIDTableField(state, "release_number", device->release_number);
+        SetHIDTableField(state, "interface_number", device->interface_number);
+        SetHIDTableField(state, "usage_page", device->usage_page);
+        SetHIDTableField(state, "usage", device->usage);
+        SetHIDTableField(state, "path", device->path);
+        const std::string serial = HIDWideString(device->serial_number);
+        const std::string manufacturer = HIDWideString(device->manufacturer_string);
+        const std::string product = HIDWideString(device->product_string);
+        SetHIDTableField(state, "serial_number", serial.c_str());
+        SetHIDTableField(state, "manufacturer_string", manufacturer.c_str());
+        SetHIDTableField(state, "product_string", product.c_str());
+        lua_rawseti(state, -2, count);
+    }
+    if (devices) {
+        hid_free_enumeration(devices);
+    }
+
+    lua_pushinteger(state, count);
+    return 2;
+}
+
+static bool LuaHIDByteArguments(lua_State* state, int firstIndex, std::vector<unsigned char>& bytes) {
+    const int argumentCount = lua_gettop(state);
+    if (argumentCount < firstIndex) {
+        return false;
+    }
+    const int byteCount = argumentCount - firstIndex + 1;
+    if (byteCount > static_cast<int>(kHIDReportBufferSize)) {
+        return false;
+    }
+
+    bytes.resize(static_cast<size_t>(byteCount));
+    for (int index = firstIndex; index <= argumentCount; ++index) {
+        if (!lua_isnumber(state, index)) {
+            return false;
+        }
+        const lua_Number value = lua_tonumber(state, index);
+        if (value < 0 || value > 255) {
+            return false;
+        }
+        bytes[static_cast<size_t>(index - firstIndex)] = static_cast<unsigned char>(value);
+    }
+    return true;
+}
+
+static int LuaHIDOpen(lua_State* state) {
+    if (!lua_isnumber(state, 1) || !lua_isnumber(state, 2)) {
+        LogLuaCompatibilityArgumentError("hid_open");
+        lua_pushnil(state);
+        return 1;
+    }
+
+    const lua_Integer vendorID = lua_tointeger(state, 1);
+    const lua_Integer productID = lua_tointeger(state, 2);
+    if (vendorID < 0 || vendorID > 0xffff || productID < 0 || productID > 0xffff) {
+        LogLuaCompatibilityArgumentError("hid_open");
+        lua_pushnil(state);
+        return 1;
+    }
+
+    hid_device* device = hid_open(static_cast<unsigned short>(vendorID), static_cast<unsigned short>(productID), nullptr);
+    if (!device) {
+        lua_pushnil(state);
+        return 1;
+    }
+
+    TrackHIDDevice(device);
+    lua_pushlightuserdata(state, device);
+    return 1;
+}
+
+static int LuaHIDOpenPath(lua_State* state) {
+    std::string path;
+    if (!LuaStringArg(state, 1, path)) {
+        LogLuaCompatibilityArgumentError("hid_open_path");
+        lua_pushnil(state);
+        return 1;
+    }
+
+    hid_device* device = hid_open_path(path.c_str());
+    if (!device) {
+        lua_pushnil(state);
+        return 1;
+    }
+
+    TrackHIDDevice(device);
+    lua_pushlightuserdata(state, device);
+    return 1;
+}
+
+static int LuaHIDClose(lua_State* state) {
+    hid_device* device = nullptr;
+    if (!LuaHIDDeviceArgument(state, 1, device)) {
+        LogLuaCompatibilityArgumentError("hid_close");
+        return 0;
+    }
+
+    if (std::find(gOpenHIDDevices.begin(), gOpenHIDDevices.end(), device) == gOpenHIDDevices.end()) {
+        return 0;
+    }
+    UntrackHIDDevice(device);
+    hid_close(device);
+    return 0;
+}
+
+static int LuaHIDWrite(lua_State* state) {
+    hid_device* device = nullptr;
+    std::vector<unsigned char> bytes;
+    if (!LuaHIDDeviceArgument(state, 1, device) || !LuaHIDByteArguments(state, 2, bytes)) {
+        LogLuaCompatibilityArgumentError("hid_write");
+        return 0;
+    }
+
+    lua_pushinteger(state, hid_write(device, bytes.data(), bytes.size()));
+    return 1;
+}
+
+static bool LuaHIDReadArguments(lua_State* state, hid_device*& device, int& length) {
+    if (!LuaHIDDeviceArgument(state, 1, device) || !lua_isnumber(state, 2)) {
+        return false;
+    }
+    length = static_cast<int>(lua_tointeger(state, 2));
+    return length > 0 && length <= static_cast<int>(kHIDReportBufferSize);
+}
+
+static int LuaHIDRead(lua_State* state) {
+    hid_device* device = nullptr;
+    int length = 0;
+    if (!LuaHIDReadArguments(state, device, length)) {
+        LogLuaCompatibilityArgumentError("hid_read");
+        return 0;
+    }
+
+    std::vector<unsigned char> bytes(static_cast<size_t>(length), 0);
+    const int result = hid_read(device, bytes.data(), bytes.size());
+    lua_pushinteger(state, result);
+    if (result <= 0) {
+        return 1;
+    }
+    for (int index = 0; index < result && index < length; ++index) {
+        lua_pushinteger(state, bytes[static_cast<size_t>(index)]);
+    }
+    return 1 + std::min(result, length);
+}
+
+static int LuaHIDReadTimeout(lua_State* state) {
+    hid_device* device = nullptr;
+    int length = 0;
+    if (!LuaHIDReadArguments(state, device, length) || !lua_isnumber(state, 3)) {
+        LogLuaCompatibilityArgumentError("hid_read_timeout");
+        return 0;
+    }
+
+    std::vector<unsigned char> bytes(static_cast<size_t>(length), 0);
+    const int result = hid_read_timeout(device, bytes.data(), bytes.size(), static_cast<int>(lua_tointeger(state, 3)));
+    lua_pushinteger(state, result);
+    if (result <= 0) {
+        return 1;
+    }
+    for (int index = 0; index < result && index < length; ++index) {
+        lua_pushinteger(state, bytes[static_cast<size_t>(index)]);
+    }
+    return 1 + std::min(result, length);
+}
+
+static int LuaHIDSetNonblocking(lua_State* state) {
+    hid_device* device = nullptr;
+    if (!LuaHIDDeviceArgument(state, 1, device) || !lua_isnumber(state, 2)) {
+        LogLuaCompatibilityArgumentError("hid_set_nonblocking");
+        return 0;
+    }
+
+    const int nonblocking = static_cast<int>(lua_tointeger(state, 2));
+    if (nonblocking != 0 && nonblocking != 1) {
+        LogLuaCompatibilityArgumentError("hid_set_nonblocking");
+        return 0;
+    }
+    lua_pushinteger(state, hid_set_nonblocking(device, nonblocking));
+    return 1;
+}
+
+static int LuaHIDSendFeatureReport(lua_State* state) {
+    hid_device* device = nullptr;
+    std::vector<unsigned char> bytes;
+    if (!LuaHIDDeviceArgument(state, 1, device) || !LuaHIDByteArguments(state, 2, bytes)) {
+        LogLuaCompatibilityArgumentError("hid_send_feature_report");
+        return 0;
+    }
+
+    lua_pushinteger(state, hid_send_feature_report(device, bytes.data(), bytes.size()));
+    return 1;
+}
+
+static int LuaHIDSendFilledFeatureReport(lua_State* state) {
+    hid_device* device = nullptr;
+    if (!LuaHIDDeviceArgument(state, 1, device) || !lua_isnumber(state, 2) || !lua_isnumber(state, 3)) {
+        LogLuaCompatibilityArgumentError("hid_send_filled_feature_report");
+        return 0;
+    }
+
+    const int length = static_cast<int>(lua_tointeger(state, 3));
+    if (length <= 0 || length > static_cast<int>(kHIDReportBufferSize)) {
+        LogLuaCompatibilityArgumentError("hid_send_filled_feature_report");
+        return 0;
+    }
+
+    // Keep the legacy FlyWithLua calling convention: argument three is both
+    // the requested report length and the first byte of the padded report.
+    std::vector<unsigned char> bytes(static_cast<size_t>(length), 0);
+    bytes[0] = static_cast<unsigned char>(length);
+    for (int index = 4; index <= lua_gettop(state) && index - 3 < length; ++index) {
+        if (!lua_isnumber(state, index)) {
+            LogLuaCompatibilityArgumentError("hid_send_filled_feature_report");
+            return 0;
+        }
+        const lua_Number value = lua_tonumber(state, index);
+        if (value < 0 || value > 255) {
+            LogLuaCompatibilityArgumentError("hid_send_filled_feature_report");
+            return 0;
+        }
+        bytes[static_cast<size_t>(index - 3)] = static_cast<unsigned char>(value);
+    }
+
+    lua_pushinteger(state, hid_send_feature_report(device, bytes.data(), bytes.size()));
+    return 1;
+}
+
+static int LuaHIDGetFeatureReport(lua_State* state) {
+    hid_device* device = nullptr;
+    if (!LuaHIDDeviceArgument(state, 1, device) || !lua_isnumber(state, 2)) {
+        LogLuaCompatibilityArgumentError("hid_get_feature_report");
+        return 0;
+    }
+
+    const int length = static_cast<int>(lua_tointeger(state, 2));
+    if (length <= 0 || length >= static_cast<int>(kHIDReportBufferSize)) {
+        LogLuaCompatibilityArgumentError("hid_get_feature_report");
+        return 0;
+    }
+
+    std::vector<unsigned char> bytes(static_cast<size_t>(length + 1), 0);
+    const int result = hid_get_feature_report(device, bytes.data(), bytes.size());
+    lua_pushinteger(state, result);
+    if (result <= 0) {
+        return 1;
+    }
+
+    // hid_get_feature_report() includes the report ID in result. The legacy
+    // Lua API exposes the payload bytes after the count value.
+    const int payloadCount = std::min(result - 1, length);
+    for (int index = 0; index < payloadCount; ++index) {
+        lua_pushinteger(state, bytes[static_cast<size_t>(index)]);
+    }
+    return 1 + payloadCount;
+}
+
+static void SetPositiveEdgeFlipValue(FlyWithLuaPositiveEdgeFlip& flip, bool useOnValue) {
+    const bool hasScalarDouble = (flip.dataType & xplmType_Double) != 0;
+    const bool hasScalarFloat = (flip.dataType & xplmType_Float) != 0;
+    const bool hasScalarInt = (flip.dataType & xplmType_Int) != 0;
+    const bool hasFloatArray = (flip.dataType & xplmType_FloatArray) != 0;
+    const bool hasIntArray = (flip.dataType & xplmType_IntArray) != 0;
+
+    if (hasScalarDouble) {
+        const double value = useOnValue ? flip.onDouble : flip.offDouble;
+        XPLMSetDatad(flip.dataRef, value);
+    } else if (hasScalarFloat) {
+        const float value = useOnValue ? flip.onFloat : flip.offFloat;
+        XPLMSetDataf(flip.dataRef, value);
+    } else if (hasScalarInt) {
+        const int value = useOnValue ? flip.onInt : flip.offInt;
+        XPLMSetDatai(flip.dataRef, value);
+    } else if (hasFloatArray) {
+        float value = useOnValue ? flip.onFloat : flip.offFloat;
+        XPLMSetDatavf(flip.dataRef, &value, flip.index, 1);
+    } else if (hasIntArray) {
+        int value = useOnValue ? flip.onInt : flip.offInt;
+        XPLMSetDatavi(flip.dataRef, &value, flip.index, 1);
+    }
+}
+
+static bool PositiveEdgeFlipIsOn(const FlyWithLuaPositiveEdgeFlip& flip) {
+    if ((flip.dataType & xplmType_Double) != 0) {
+        return XPLMGetDatad(flip.dataRef) == flip.onDouble;
+    }
+    if ((flip.dataType & xplmType_Float) != 0) {
+        return XPLMGetDataf(flip.dataRef) == flip.onFloat;
+    }
+    if ((flip.dataType & xplmType_Int) != 0) {
+        return XPLMGetDatai(flip.dataRef) == flip.onInt;
+    }
+    if ((flip.dataType & xplmType_FloatArray) != 0) {
+        float value = 0.0f;
+        XPLMGetDatavf(flip.dataRef, &value, flip.index, 1);
+        return value == flip.onFloat;
+    }
+    if ((flip.dataType & xplmType_IntArray) != 0) {
+        int value = 0;
+        XPLMGetDatavi(flip.dataRef, &value, flip.index, 1);
+        return value == flip.onInt;
+    }
+    return false;
+}
+
+static int LuaCreatePositiveEdgeFlip(lua_State* state) {
+    if (!lua_isnumber(state, 1) || !lua_isstring(state, 2)) {
+        LogLuaCompatibilityArgumentError("create_positive_edge_flip");
+        return 0;
+    }
+
+    const int button = static_cast<int>(lua_tointeger(state, 1));
+    std::string path;
+    LuaStringArg(state, 2, path);
+    if (button < 0 || path.empty()) {
+        LogLuaCompatibilityArgumentError("create_positive_edge_flip");
+        return 0;
+    }
+
+    XPLMDataRef dataRef = XPLMFindDataRef(path.c_str());
+    if (!dataRef) {
+        XPLMDebugString(("FlyWithLua Warning: create_positive_edge_flip() DataRef not found: " + path + "\n").c_str());
+        return 0;
+    }
+
+    FlyWithLuaPositiveEdgeFlip flip;
+    flip.button = button;
+    flip.dataRef = dataRef;
+    flip.dataType = XPLMGetDataRefTypes(dataRef);
+    flip.index = lua_isnumber(state, 3) ? static_cast<int>(lua_tointeger(state, 3)) : 0;
+    if (flip.index < 0) {
+        LogLuaCompatibilityArgumentError("create_positive_edge_flip");
+        return 0;
+    }
+
+    const lua_Number offValue = lua_isnumber(state, 4) ? lua_tonumber(state, 4) : 0.0;
+    const lua_Number onValue = lua_isnumber(state, 5) ? lua_tonumber(state, 5) : 1.0;
+    flip.offInt = static_cast<int>(offValue);
+    flip.onInt = static_cast<int>(onValue);
+    flip.offFloat = static_cast<float>(offValue);
+    flip.onFloat = static_cast<float>(onValue);
+    flip.offDouble = static_cast<double>(offValue);
+    flip.onDouble = static_cast<double>(onValue);
+    gPositiveEdgeFlips.push_back(flip);
+    return 0;
+}
+
+static void PollPositiveEdgeFlips() {
+    if (gPositiveEdgeFlips.empty()) {
+        return;
+    }
+
+    if (!gJoystickButtonDataRef) {
+        gJoystickButtonDataRef = XPLMFindDataRef("sim/joystick/joystick_button_values");
+    }
+    if (!gJoystickButtonDataRef) {
+        return;
+    }
+
+    const int buttonCount = XPLMGetDatavi(gJoystickButtonDataRef, nullptr, 0, 0);
+    if (buttonCount <= 0 || buttonCount > static_cast<int>(kHIDReportBufferSize)) {
+        return;
+    }
+
+    std::vector<int> buttonValues(static_cast<size_t>(buttonCount), 0);
+    XPLMGetDatavi(gJoystickButtonDataRef, buttonValues.data(), 0, buttonCount);
+    for (FlyWithLuaPositiveEdgeFlip& flip : gPositiveEdgeFlips) {
+        const bool pressed = flip.button < buttonCount && buttonValues[static_cast<size_t>(flip.button)] != 0;
+        if (pressed && !flip.lastPressed) {
+            SetPositiveEdgeFlipValue(flip, !PositiveEdgeFlipIsOn(flip));
+        }
+        flip.lastPressed = pressed;
+    }
+}
+
 static int LuaDoEveryDrawCallback(lua_State* state) {
     if (!lua_isstring(state, 1)) {
         return 0;
@@ -1004,6 +1919,33 @@ static int LuaDoOnMouseWheelCallback(lua_State* state) {
 }
 
 static void RegisterFlyWithLuaCompatibilityFunctions(lua_State* state) {
+    lua_register(state, "XPLMFindDataRef", LuaXPLMFindDataRef);
+    lua_register(state, "XPLMGetDataRefTypes", LuaXPLMGetDataRefTypes);
+    lua_register(state, "XPLMGetDatai", LuaXPLMGetDatai);
+    lua_register(state, "XPLMGetDataf", LuaXPLMGetDataf);
+    lua_register(state, "XPLMGetDatad", LuaXPLMGetDatad);
+    lua_register(state, "XPLMSetDatai", LuaXPLMSetDatai);
+    lua_register(state, "XPLMSetDataf", LuaXPLMSetDataf);
+    lua_register(state, "XPLMSetDatad", LuaXPLMSetDatad);
+    lua_register(state, "XPLMGetDatavi", LuaXPLMGetDatavi);
+    lua_register(state, "XPLMGetDatavf", LuaXPLMGetDatavf);
+    lua_register(state, "XPLMSetDatavi", LuaXPLMSetDatavi);
+    lua_register(state, "XPLMSetDatavf", LuaXPLMSetDatavf);
+    lua_register(state, "create_HID_table", LuaCreateHIDTable);
+    lua_register(state, "hid_open", LuaHIDOpen);
+    lua_register(state, "hid_open_path", LuaHIDOpenPath);
+    lua_register(state, "hid_close", LuaHIDClose);
+    lua_register(state, "hid_write", LuaHIDWrite);
+    lua_register(state, "hid_read", LuaHIDRead);
+    lua_register(state, "hid_read_timeout", LuaHIDReadTimeout);
+    lua_register(state, "hid_set_nonblocking", LuaHIDSetNonblocking);
+    lua_register(state, "hid_send_feature_report", LuaHIDSendFeatureReport);
+    lua_register(state, "hid_send_filled_feature_report", LuaHIDSendFilledFeatureReport);
+    lua_register(state, "hid_get_feature_report", LuaHIDGetFeatureReport);
+    lua_register(state, "add_macro", LuaAddMacro);
+    lua_register(state, "activate_macro", LuaActivateMacro);
+    lua_register(state, "deactivate_macro", LuaDeactivateMacro);
+    lua_register(state, "create_positive_edge_flip", LuaCreatePositiveEdgeFlip);
     lua_register(state, "do_every_draw", LuaDoEveryDrawCallback);
     lua_register(state, "do_every_frame", LuaDoEveryFrameCallback);
     lua_register(state, "do_often", LuaDoOftenCallback);
@@ -1032,6 +1974,8 @@ static void RegisterFlyWithLuaCompatibilityFunctions(lua_State* state) {
 }
 
 static void ResetLuaRuntimeState() {
+    CloseAllOpenHIDDevices();
+    gPositiveEdgeFlips.clear();
     if (L) {
         ClearFlyWithLuaCommands();
         lua_close(L);
@@ -1059,12 +2003,11 @@ extern "C" void flywithlua_reload_scripts(void) {
 
     XPLMDebugString("FlyWithLua-Mac: Reloading scripts.\n");
     flywithlua_update_last_log_message("Reloading scripts...");
-    flywithlua_update_script_count(0);
-    flywithlua_clear_script_load_failures();
+    flywithlua_update_script_load_summary(0, 0, 0, "[]");
 
     RunLuaStringChunk(gOnExitCommand, "do_on_exit");
     flwnd::deinitFloatingWindowSupport();
-    fmodint::deinitFmodSupport();
+    fmodint::fmod_uninitialize();
     ResetLuaRuntimeState();
 
     if (!InitializeLuaRuntime(false)) {
@@ -1086,12 +2029,27 @@ static bool InitializeLuaRuntime(bool registerFlightLoop) {
     }
 
     luaL_openlibs(L);
+    if (hid_init() != 0) {
+        XPLMDebugString("FlyWithLua-Mac Warning: HIDAPI initialization failed; HID functions will remain unavailable.\n");
+    }
     if (!RegisterLuaBuiltinModule(L, "socket.core", luaopen_socket_core)) {
         XPLMDebugString("FlyWithLua-Mac Warning: Could not register built-in socket.core module.\n");
     }
     if (!RegisterLuaBuiltinModule(L, "mime.core", luaopen_mime_core)) {
         XPLMDebugString("FlyWithLua-Mac Warning: Could not register built-in mime.core module.\n");
     }
+    if (!RegisterLuaBuiltinModule(L, "LuaXML_lib", luaopen_LuaXML_lib)) {
+        XPLMDebugString("FlyWithLua-Mac Warning: Could not register built-in LuaXML_lib module.\n");
+    }
+    if (!RegisterLuaBuiltinModule(L, "socket.unix", luaopen_socket_unix)) {
+        XPLMDebugString("FlyWithLua-Mac Warning: Could not register built-in socket.unix module.\n");
+    }
+    if (!RegisterLuaBuiltinModule(L, "socket.serial", luaopen_socket_serial)) {
+        XPLMDebugString("FlyWithLua-Mac Warning: Could not register built-in socket.serial module.\n");
+    }
+    // These functions must exist before the embedded init script defines its
+    // dataref helpers and before any user script is loaded.
+    RegisterFlyWithLuaCompatibilityFunctions(L);
     flywithlua::FWLLua = L;
     flywithlua::LuaIsRunning = true;
     lState = L;
@@ -1102,8 +2060,14 @@ static bool InitializeLuaRuntime(bool registerFlightLoop) {
     lua_pushstring(L, "/");
     lua_setglobal(L, "DIRECTORY_SEPARATOR");
 
-    lua_pushstring(L, flywithlua::scriptDir.c_str());
+    std::string scriptDirectory = flywithlua::scriptDir;
+    if (!scriptDirectory.empty() && scriptDirectory.back() != '/') {
+        scriptDirectory.push_back('/');
+    }
+    lua_pushstring(L, scriptDirectory.c_str());
     lua_setglobal(L, "SCRIPT_DIRECTORY");
+
+    UpdateLuaAircraftGlobals();
 
     std::string mainDir = GetMainDirectoryFromScripts();
 
@@ -1167,20 +2131,6 @@ end
 
 function print(...)
     XSBSpeakString(...)
-end
-
-function hid_open()
-    return nil
-end
-
-function add_macro()
-end
-
-function create_positive_edge_flip()
-end
-
-function create_HID_table()
-    return {}, 0
 end
 
 local band = bit.band
@@ -1479,8 +2429,13 @@ end
         XPLMDebugString(("FlyWithLua-Mac Lua Init Error: " + std::string(lua_tostring(L, -1)) + "\n").c_str());
         lua_pop(L, 1);
     }
-    RegisterFlyWithLuaCompatibilityFunctions(L);
 
+    // Preserve the legacy globals used by HID scripts. The native functions
+    // remain safe no-ops when hid_init() could not access a device backend.
+    if (luaL_dostring(L, "ALL_HID_DEVICES, NUMBER_OF_HID_DEVICES = create_HID_table()")) {
+        XPLMDebugString(("FlyWithLua-Mac HID initialization script error: " + std::string(lua_tostring(L, -1)) + "\n").c_str());
+        lua_pop(L, 1);
+    }
     char xplanePath[512];
     XPLMGetSystemPath(xplanePath);
     lua_pushstring(L, xplanePath);
@@ -1501,7 +2456,7 @@ end
     gMacroMenuNeedsRefresh = false;
     flywithlua::ReadAllScriptFiles();
     gSuppressMacroMenuRefresh = false;
-    if (gMacroMenuNeedsRefresh) {
+    if (gMacroMenuNeedsRefresh || !gFlyWithLuaMacrosMenu) {
         RefreshFlyWithLuaMacrosMenu();
     }
     return true;
@@ -1545,23 +2500,24 @@ namespace flywithlua {
         std::vector<FlyWithLuaScriptFailure> failures;
 
         std::vector<std::string> fileNames;
-        flywithlua_clear_script_load_failures();
+        gDiscoveredScriptCount = 0;
+        gLoadedScriptCount = 0;
+        gFailedScriptCount = 0;
 
         if (!IsExistingDirectory(scriptDir)) {
             logMsg(logToDevCon, "Failed to read directory: " + scriptDir);
-            flywithlua_update_script_count(0);
-            flywithlua_clear_script_load_failures();
+            flywithlua_update_script_load_summary(0, 0, 0, "[]");
             flywithlua_update_last_log_message("Failed to read scripts folder");
             return false;
         }
 
         CollectScriptFilesRecursive(scriptDir, "", fileNames);
         std::sort(fileNames.begin(), fileNames.end());
+        gDiscoveredScriptCount = static_cast<int>(fileNames.size());
 
         if (fileNames.empty()) {
             logMsg(logToDevCon, "No script files found in: " + scriptDir);
-            flywithlua_update_script_count(0);
-            flywithlua_clear_script_load_failures();
+            flywithlua_update_script_load_summary(0, 0, 0, "[]");
             flywithlua_update_last_log_message("No scripts found");
             return true;
         }
@@ -1581,9 +2537,13 @@ namespace flywithlua {
             }
         }
 
-        flywithlua_update_script_count(loadedScripts);
-        flywithlua_update_script_load_results(BuildScriptLoadFailuresJson(failures).c_str());
-        flywithlua_update_last_log_message((std::string("Loaded scripts: ") + std::to_string(loadedScripts) + ", failed: " + std::to_string(failedScripts)).c_str());
+        gLoadedScriptCount = loadedScripts;
+        gFailedScriptCount = failedScripts;
+        const std::string failuresJson = BuildScriptLoadFailuresJson(failures);
+        flywithlua_update_script_load_summary(gDiscoveredScriptCount, loadedScripts, failedScripts, failuresJson.c_str());
+        flywithlua_update_last_log_message((std::string("Loaded scripts: ") + std::to_string(loadedScripts) + "/" +
+                                            std::to_string(gDiscoveredScriptCount) + ", failed: " +
+                                            std::to_string(failedScripts)).c_str());
         return true;
     }
 }
@@ -1594,6 +2554,7 @@ float FlightLoopCallback(float inElapsedSinceLastCall, float inElapsedTimeSinceL
     // Update FMOD and Floating Windows
     fmodint::fmod_data_update();
     flwnd::onFlightLoop();
+    PollPositiveEdgeFlips();
 
     RunLuaStringChunk(gEveryFrameCommand, "do_every_frame");
     RunLuaStringChunk(gOftenCommand, "do_often");
@@ -1663,6 +2624,9 @@ PLUGIN_API int XPluginStart(char * outName, char * outSig, char * outDesc) {
     if (!gAltitudeDataRef) {
         XPLMDebugString("FlyWithLua-Mac Warning: Could not find altitude DataRef.\n");
     }
+    gJoystickButtonDataRef = XPLMFindDataRef("sim/joystick/joystick_button_values");
+    gPlaneICAODataRef = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
+    gPlaneTailNumberDataRef = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
 
     if (!InitializeLuaRuntime(true)) {
         return 0;
@@ -1685,8 +2649,12 @@ PLUGIN_API void XPluginStop(void) {
         fmodint::fmod_uninitialize();
         UnregisterFlyWithLuaMenu();
         ClearFlyWithLuaCommands();
-        flywithlua_update_script_count(0);
-        flywithlua_clear_script_load_failures();
+        flywithlua_update_script_load_summary(0, 0, 0, "[]");
+        CloseAllOpenHIDDevices();
+        hid_exit();
+        gPositiveEdgeFlips.clear();
+        gPlaneICAODataRef = nullptr;
+        gPlaneTailNumberDataRef = nullptr;
         
         lua_close(L);
         L = nullptr;
@@ -1694,14 +2662,14 @@ PLUGIN_API void XPluginStop(void) {
         flywithlua::FWLLua = nullptr;
         flywithlua::LuaIsRunning = false;
         gAltitudeDataRef = nullptr;
+        gJoystickButtonDataRef = nullptr;
         XPLMDebugString("FlyWithLua-Mac: Stopped.\n");
     }
 }
 
 PLUGIN_API void XPluginDisable(void) {
     flywithlua::LuaIsRunning = false;
-    flywithlua_update_script_count(0);
-    flywithlua_clear_script_load_failures();
+    flywithlua_update_script_load_summary(0, 0, 0, "[]");
     UpdateFlyWithLuaMenuEnabled(false);
 }
 

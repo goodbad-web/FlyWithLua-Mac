@@ -101,6 +101,8 @@ targets:
         implicit: true
       - framework: /System/Library/Frameworks/Carbon.framework
         implicit: true
+      - framework: /System/Library/Frameworks/IOKit.framework
+        implicit: true
     postBuildScripts:
       - name: Remove stale bundle aliases
         basedOnDependencyAnalysis: false
