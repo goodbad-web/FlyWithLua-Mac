@@ -3,10 +3,16 @@
 #include "XPLMUtilities.h"
 #include "XPLMProcessing.h"
 #include "XPLMDisplay.h"
+#include "XPLMGraphics.h"
 #include "XPLMDataAccess.h"
 #include "XPLMMenus.h"
 #include "FloatingWindows/FLWIntegration.h"
 #include "Fmod/FmodIntegration.h"
+#ifdef __APPLE__
+#include <OpenGL/gl.h>
+#else
+#include <GL/gl.h>
+#endif
 #include <iostream>
 #include <vector>
 #include <string>
@@ -612,6 +618,198 @@ static void RunLuaStringChunk(const std::string& code, const char* context) {
     }
 }
 
+static bool LuaGraphicsCallAllowed(const char* functionName) {
+    if (!flywithlua::WeAreNotInDrawingState) {
+        return true;
+    }
+
+    flywithlua::logMsg(
+        logToDevCon,
+        std::string("FlyWithLua Error: ") + functionName +
+            " cannot be executed outside a drawing loopback. Put the function call inside the do_every_draw() string argument to solve this issue."
+    );
+    flywithlua::LuaIsRunning = false;
+    return false;
+}
+
+static bool LuaGraphicsHasNumbers(lua_State* state, int firstIndex, int count, const char* functionName) {
+    for (int index = firstIndex; index < firstIndex + count; ++index) {
+        if (!lua_isnumber(state, index)) {
+            flywithlua::logMsg(
+                logToDevCon,
+                std::string("FlyWithLua Error: Wrong arguments to function ") + functionName + "."
+            );
+            flywithlua::LuaIsRunning = false;
+            return false;
+        }
+    }
+    return true;
+}
+
+static int LuaXPLMSetGraphicsState(lua_State* state) {
+    if (!LuaGraphicsCallAllowed("XPLMSetGraphicsState()") ||
+        !LuaGraphicsHasNumbers(state, 1, 7, "XPLMSetGraphicsState")) {
+        return 0;
+    }
+
+    XPLMSetGraphicsState(
+        static_cast<int>(lua_tointeger(state, 1)),
+        static_cast<int>(lua_tointeger(state, 2)),
+        static_cast<int>(lua_tointeger(state, 3)),
+        static_cast<int>(lua_tointeger(state, 4)),
+        static_cast<int>(lua_tointeger(state, 5)),
+        static_cast<int>(lua_tointeger(state, 6)),
+        static_cast<int>(lua_tointeger(state, 7))
+    );
+    return 0;
+}
+
+static int LuaGLBegin(lua_State* state, GLenum mode, const char* functionName) {
+    if (!LuaGraphicsCallAllowed(functionName)) {
+        return 0;
+    }
+
+    glBegin(mode);
+    return 0;
+}
+
+static int LuaGLBegin_POINTS(lua_State* state) {
+    return LuaGLBegin(state, GL_POINTS, "glBegin_POINTS()");
+}
+
+static int LuaGLBegin_LINES(lua_State* state) {
+    return LuaGLBegin(state, GL_LINES, "glBegin_LINES()");
+}
+
+static int LuaGLBegin_LINE_STRIP(lua_State* state) {
+    return LuaGLBegin(state, GL_LINE_STRIP, "glBegin_LINE_STRIP()");
+}
+
+static int LuaGLBegin_LINE_LOOP(lua_State* state) {
+    return LuaGLBegin(state, GL_LINE_LOOP, "glBegin_LINE_LOOP()");
+}
+
+static int LuaGLBegin_POLYGON(lua_State* state) {
+    return LuaGLBegin(state, GL_POLYGON, "glBegin_POLYGON()");
+}
+
+static int LuaGLBegin_TRIANGLES(lua_State* state) {
+    return LuaGLBegin(state, GL_TRIANGLES, "glBegin_TRIANGLES()");
+}
+
+static int LuaGLBegin_TRIANGLE_STRIP(lua_State* state) {
+    return LuaGLBegin(state, GL_TRIANGLE_STRIP, "glBegin_TRIANGLE_STRIP()");
+}
+
+static int LuaGLBegin_TRIANGLE_FAN(lua_State* state) {
+    return LuaGLBegin(state, GL_TRIANGLE_FAN, "glBegin_TRIANGLE_FAN()");
+}
+
+static int LuaGLBegin_QUADS(lua_State* state) {
+    return LuaGLBegin(state, GL_QUADS, "glBegin_QUADS()");
+}
+
+static int LuaGLBegin_QUAD_STRIP(lua_State* state) {
+    return LuaGLBegin(state, GL_QUAD_STRIP, "glBegin_QUAD_STRIP()");
+}
+
+static int LuaGLEnd(lua_State* state) {
+    if (!LuaGraphicsCallAllowed("glEnd()")) {
+        return 0;
+    }
+
+    glEnd();
+    return 0;
+}
+
+static int LuaGLVertex2f(lua_State* state) {
+    if (!LuaGraphicsCallAllowed("glVertex2f()") ||
+        !LuaGraphicsHasNumbers(state, 1, 2, "glVertex2f")) {
+        return 0;
+    }
+
+    glVertex2f(
+        static_cast<float>(lua_tonumber(state, 1)),
+        static_cast<float>(lua_tonumber(state, 2))
+    );
+    return 0;
+}
+
+static int LuaGLVertex3f(lua_State* state) {
+    if (!LuaGraphicsCallAllowed("glVertex3f()") ||
+        !LuaGraphicsHasNumbers(state, 1, 3, "glVertex3f")) {
+        return 0;
+    }
+
+    glVertex3f(
+        static_cast<float>(lua_tonumber(state, 1)),
+        static_cast<float>(lua_tonumber(state, 2)),
+        static_cast<float>(lua_tonumber(state, 3))
+    );
+    return 0;
+}
+
+static int LuaGLLineWidth(lua_State* state) {
+    if (!LuaGraphicsCallAllowed("glLineWidth()") ||
+        !LuaGraphicsHasNumbers(state, 1, 1, "glLineWidth")) {
+        return 0;
+    }
+
+    glLineWidth(static_cast<float>(lua_tonumber(state, 1)));
+    return 0;
+}
+
+static int LuaGLColor3f(lua_State* state) {
+    if (!LuaGraphicsCallAllowed("glColor3f()") ||
+        !LuaGraphicsHasNumbers(state, 1, 3, "glColor3f")) {
+        return 0;
+    }
+
+    glColor3f(
+        static_cast<float>(lua_tonumber(state, 1)),
+        static_cast<float>(lua_tonumber(state, 2)),
+        static_cast<float>(lua_tonumber(state, 3))
+    );
+    return 0;
+}
+
+static int LuaGLColor4f(lua_State* state) {
+    if (!LuaGraphicsCallAllowed("glColor4f()") ||
+        !LuaGraphicsHasNumbers(state, 1, 4, "glColor4f")) {
+        return 0;
+    }
+
+    glColor4f(
+        static_cast<float>(lua_tonumber(state, 1)),
+        static_cast<float>(lua_tonumber(state, 2)),
+        static_cast<float>(lua_tonumber(state, 3)),
+        static_cast<float>(lua_tonumber(state, 4))
+    );
+    return 0;
+}
+
+static int LuaGLRectf(lua_State* state) {
+    if (!LuaGraphicsCallAllowed("glRectf()") ||
+        !LuaGraphicsHasNumbers(state, 1, 4, "glRectf")) {
+        return 0;
+    }
+
+    float x1 = static_cast<float>(lua_tonumber(state, 1));
+    float y1 = static_cast<float>(lua_tonumber(state, 2));
+    float x2 = static_cast<float>(lua_tonumber(state, 3));
+    float y2 = static_cast<float>(lua_tonumber(state, 4));
+
+    if (x1 < x2) {
+        std::swap(x1, x2);
+    }
+    if (y1 > y2) {
+        std::swap(y1, y2);
+    }
+
+    glRectf(x1, y1, x2, y2);
+    return 0;
+}
+
 static bool HasFlyWithLuaScriptExtension(const std::string& fileName) {
     std::string lowerName;
     lowerName.reserve(fileName.size());
@@ -789,6 +987,24 @@ static void RegisterFlyWithLuaCompatibilityFunctions(lua_State* state) {
     lua_register(state, "do_on_exit", LuaDoOnExitCallback);
     lua_register(state, "do_on_mouse_click", LuaDoOnMouseClickCallback);
     lua_register(state, "do_on_mouse_wheel", LuaDoOnMouseWheelCallback);
+    lua_register(state, "XPLMSetGraphicsState", LuaXPLMSetGraphicsState);
+    lua_register(state, "glBegin_POINTS", LuaGLBegin_POINTS);
+    lua_register(state, "glBegin_LINES", LuaGLBegin_LINES);
+    lua_register(state, "glBegin_LINE_STRIP", LuaGLBegin_LINE_STRIP);
+    lua_register(state, "glBegin_LINE_LOOP", LuaGLBegin_LINE_LOOP);
+    lua_register(state, "glBegin_POLYGON", LuaGLBegin_POLYGON);
+    lua_register(state, "glBegin_TRIANGLES", LuaGLBegin_TRIANGLES);
+    lua_register(state, "glBegin_TRIANGLE_STRIP", LuaGLBegin_TRIANGLE_STRIP);
+    lua_register(state, "glBegin_TRIANGLE_FAN", LuaGLBegin_TRIANGLE_FAN);
+    lua_register(state, "glBegin_QUADS", LuaGLBegin_QUADS);
+    lua_register(state, "glBegin_QUAD_STRIP", LuaGLBegin_QUAD_STRIP);
+    lua_register(state, "glEnd", LuaGLEnd);
+    lua_register(state, "glVertex2f", LuaGLVertex2f);
+    lua_register(state, "glVertex3f", LuaGLVertex3f);
+    lua_register(state, "glLineWidth", LuaGLLineWidth);
+    lua_register(state, "glColor3f", LuaGLColor3f);
+    lua_register(state, "glColor4f", LuaGLColor4f);
+    lua_register(state, "glRectf", LuaGLRectf);
 }
 
 static void ResetLuaRuntimeState() {
@@ -1394,7 +1610,11 @@ int FlyWithLuaDrawCallback(XPLMDrawingPhase /*inPhase*/, int /*inIsBefore*/, voi
     lua_pushinteger(L, screenHeight);
     lua_setglobal(L, "SCREEN_HEIGHT");
 
+    // Establish the 2D state expected by legacy FlyWithLua drawing scripts.
+    XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
+    flywithlua::WeAreNotInDrawingState = false;
     RunLuaStringChunk(gDrawCommand, "do_every_draw");
+    flywithlua::WeAreNotInDrawingState = true;
     return 1;
 }
 
