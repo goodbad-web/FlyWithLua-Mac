@@ -142,7 +142,10 @@ copy_tree() {
     local source_path="$1"
     local destination_path="$2"
     mkdir -p "$destination_path"
-    cp -R "$source_path/." "$destination_path/"
+    # Preserve regular-file metadata while staging an existing installation.
+    # In particular, user configuration mtimes must survive the directory
+    # swap performed below.
+    cp -Rp "$source_path/." "$destination_path/"
 }
 
 copy_file() {

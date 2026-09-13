@@ -836,6 +836,7 @@ int fmod_initialization()
     if(nullptr == fmod_studio_sdk)
     {
         XPLMDebugString("FlyWithLua Info: No pointer from SDK for Studio system\n");
+        fmod_system_sdk = nullptr;
         return 0;
     }
 
@@ -850,18 +851,28 @@ int fmod_initialization()
         return 0;
     }
 
-    attachCustomChannelGroup("FlyWithLua_Com1_Channel", xplm_AudioRadioCom1,
-                             &flywithlua_com1_channel_group, &cg_sdk_audio_radio_com1);
-    attachCustomChannelGroup("FlyWithLua_Interior_Channel", xplm_AudioInterior,
-                             &flywithlua_interior_channel_group, &cg_sdk_audio_interior);
-    attachCustomChannelGroup("FlyWithLua_Ui_Channel", xplm_AudioUI,
-                             &flywithlua_ui_channel_group, &cg_sdk_audio_ui);
-    attachCustomChannelGroup("FlyWithLua_Master_Channel", xplm_Master,
-                             &flywithlua_master_channel_group, &cg_sdk_master);
+    const bool com1Initialized = attachCustomChannelGroup(
+        "FlyWithLua_Com1_Channel", xplm_AudioRadioCom1,
+        &flywithlua_com1_channel_group, &cg_sdk_audio_radio_com1);
+    const bool interiorInitialized = attachCustomChannelGroup(
+        "FlyWithLua_Interior_Channel", xplm_AudioInterior,
+        &flywithlua_interior_channel_group, &cg_sdk_audio_interior);
+    const bool uiInitialized = attachCustomChannelGroup(
+        "FlyWithLua_Ui_Channel", xplm_AudioUI,
+        &flywithlua_ui_channel_group, &cg_sdk_audio_ui);
+    const bool masterInitialized = attachCustomChannelGroup(
+        "FlyWithLua_Master_Channel", xplm_Master,
+        &flywithlua_master_channel_group, &cg_sdk_master);
 
-    fmod_groups_initialized = true;
-    XPLMDebugString("FlyWithLua Info: FMOD channel group initialization pass completed after bank load.\n");
-    return 1;
+    fmod_groups_initialized = com1Initialized && interiorInitialized &&
+                              uiInitialized && masterInitialized;
+    if (fmod_groups_initialized) {
+        XPLMDebugString("FlyWithLua Info: FMOD channel group initialization pass completed after bank load.\n");
+        return 1;
+    }
+
+    XPLMDebugString("FlyWithLua Warning: FMOD channel group initialization was partial; missing buses will be retried.\n");
+    return 0;
 }
 
 int fmod_uninitialize()

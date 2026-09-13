@@ -108,27 +108,82 @@ function getFileSize(filePath)
 	return size
 end
 
+local function readFile(file, ...)
+	local ok, contents = pcall(file.read, file, ...)
+	return ok, contents
+end
+
+local function writeFile(file, ...)
+	local ok, result = pcall(file.write, file, ...)
+	return ok and result ~= nil
+end
+
+local function closeFile(file)
+	if not file then
+		return true
+	end
+	local ok, result = pcall(file.close, file)
+	return ok and result ~= nil
+end
+
+-- Rename only after the complete destination has been written. The fallback
+-- also works on platforms where rename() refuses to replace an existing file
+-- while keeping a displaced destination available for rollback.
+local function replaceFile(sourcePath, destinationPath)
+	if os.rename(sourcePath, destinationPath) then
+		return true
+	end
+
+	local displacedPath = destinationPath .. "_jjjLib_REPLACE"
+	if fileExists(displacedPath) and not os.remove(displacedPath) then
+		return false
+	end
+	if not os.rename(destinationPath, displacedPath) then
+		return false
+	end
+	if os.rename(sourcePath, destinationPath) then
+		os.remove(displacedPath)
+		return true
+	end
+
+	-- Best effort restoration. The original is still present in the displaced
+	-- path if the second rename fails.
+	os.rename(displacedPath, destinationPath)
+	return false
+end
+
 function fileCopy(filePathSrc, filePathDest)
 	local sourceFile = io.open(filePathSrc, "rb")
 	if not sourceFile then
 		return false
 	end
-	local contents = sourceFile:read("*a")
-	sourceFile:close()
-	if contents == nil then
+	local readOk, contents = readFile(sourceFile, "*a")
+	local sourceClosed = closeFile(sourceFile)
+	if not readOk or contents == nil or not sourceClosed then
 		return false
 	end
 
-	local destFile = io.open(filePathDest, "wb")
+	local copyTempPath = filePathDest .. "_jjjLib_COPY_TEMP"
+	os.remove(copyTempPath)
+	local destFile = io.open(copyTempPath, "wb")
 	if not destFile then
 		return false
 	end
-	local written = destFile:write(contents)
-	local closed = destFile:close()
-	if not written or closed == false then
+	local written = writeFile(destFile, contents)
+	local closed = closeFile(destFile)
+	if not written or not closed then
+		os.remove(copyTempPath)
 		return false
 	end
-	return getFileSize(filePathDest) == #contents
+	if getFileSize(copyTempPath) ~= #contents then
+		os.remove(copyTempPath)
+		return false
+	end
+	if not replaceFile(copyTempPath, filePathDest) then
+		os.remove(copyTempPath)
+		return false
+	end
+	return true
 end
 
 function arrayCopy(arrFrom)
@@ -261,9 +316,13 @@ function patchLuaScript(scriptFilePath, searchStrings, includeCondition, patchIn
 	end
 
 	local patchedFile = scriptFilePath .. "_jjjLib_PATCHED"
+	local function cleanupPatchArtifacts()
+		os.remove(patchedFile)
+		os.remove(tempFile)
+	end
 	local destFile = io.open(patchedFile, "w")
 	if not destFile then
-		os.remove(tempFile)
+		cleanupPatchArtifacts()
 		return false
 	end
 	local numLines      = 0
@@ -275,10 +334,11 @@ function patchLuaScript(scriptFilePath, searchStrings, includeCondition, patchIn
 	local firstLine     = true
 	local sourceFile = io.open(tempFile, "r")
 	if not sourceFile then
-		destFile:close()
-		os.remove(patchedFile)
+		closeFile(destFile)
+		cleanupPatchArtifacts()
 		return false
 	end
+	local writeFailed = false
 	for patchLine in sourceFile:lines() do
 		local currentLine = patchLine
 		if firstLine then
@@ -288,7 +348,10 @@ function patchLuaScript(scriptFilePath, searchStrings, includeCondition, patchIn
 					currentLine = currentLine .. " " .. patchMark
 				end
 			else
-				destFile:write("-- " .. patchMark, "\n")
+				if not writeFile(destFile, "-- " .. patchMark, "\n") then
+					writeFailed = true
+					break
+				end
 			end
 		end
 		if string.sub(trim(currentLine), 1, 2) ~= "--" and not string.find(currentLine, patchMark, 1, true) then
@@ -308,26 +371,28 @@ function patchLuaScript(scriptFilePath, searchStrings, includeCondition, patchIn
 				end
 			end
 		end
-		destFile:write(currentLine, "\n")
+		if not writeFile(destFile, currentLine, "\n") then
+			writeFailed = true
+			break
+		end
 		numLines = numLines + 1
 	end
-	sourceFile:close()
-	destFile:close()
+	local sourceClosed = closeFile(sourceFile)
+	local destClosed = closeFile(destFile)
+	if writeFailed or not sourceClosed or not destClosed then
+		cleanupPatchArtifacts()
+		return false
+	end
 	if patchedLines < 1 then
-		os.remove(patchedFile)
-		os.remove(tempFile)
+		cleanupPatchArtifacts()
 		return 0
 	end
 
-	-- POSIX systems replace atomically. If the platform refuses to rename over
-	-- an existing file, keep the backup available and restore it on failure.
-	if not os.rename(patchedFile, scriptFilePath) then
-		if not os.remove(scriptFilePath) or not os.rename(patchedFile, scriptFilePath) then
-			fileCopy(backupFile, scriptFilePath)
-			os.remove(patchedFile)
-			os.remove(tempFile)
-			return false
-		end
+	-- Replace only after all writes and closes succeeded. replaceFile() also
+	-- handles platforms where rename() refuses to replace an existing file.
+	if not replaceFile(patchedFile, scriptFilePath) then
+		cleanupPatchArtifacts()
+		return false
 	end
 	os.remove(tempFile)
 	return patchedLines

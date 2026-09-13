@@ -11,8 +11,7 @@ end
 
 add_macro("User waypoint window", "usr_point_show_wnd()")
 
-local fms_dest = {}
-local current_pos = true
+local fms_max_entries = 100
 local new_entry = 1
 
 local new_lat = 0.0
@@ -42,6 +41,68 @@ local latlon_digits_mod_13 = 0.166670
 local latlon_digits_mod_14 = 0.016667
 local latlon_digits_mod_15 = 0.001667
 local latlon_digits_mod_16 = 0.000167
+
+local function clamp(value, minimum, maximum)
+	return math.max(minimum, math.min(maximum, value))
+end
+
+local function clamp_coordinates()
+	new_lat = clamp(new_lat, -90.0, 90.0)
+	new_lon = clamp(new_lon, -180.0, 180.0)
+end
+
+local function get_fms_entry_count()
+	if type(XPLMCountFMSEntries) ~= "function" then
+		return nil
+	end
+
+	local ok, count = pcall(XPLMCountFMSEntries)
+	if not ok or type(count) ~= "number" then
+		return nil
+	end
+
+	return clamp(math.floor(count), 0, fms_max_entries)
+end
+
+local function send_waypoint_to_fms()
+	if type(XPLMSetFMSEntryLatLon) ~= "function" or
+		type(XPLMSetDisplayedFMSEntry) ~= "function" or
+		type(XPLMSetDestinationFMSEntry) ~= "function" then
+		logMsg("User waypoint: FMS navigation API is unavailable in this FlyWithLua build")
+		return
+	end
+
+	clamp_coordinates()
+
+	-- The XPLM FMS API is zero-based; the UI intentionally shows 1..9.
+	local fms_index = new_entry - 1
+	if fms_index < 0 or fms_index >= fms_max_entries then
+		logMsg("User waypoint: invalid FMS entry number")
+		return
+	end
+
+	local entry_count = get_fms_entry_count()
+	if entry_count ~= nil and fms_index > entry_count then
+		logMsg("User waypoint: FMS entries must be contiguous; select an existing entry or the next entry")
+		return
+	end
+
+	local ok, error_message = pcall(XPLMSetFMSEntryLatLon, fms_index, new_lat, new_lon, 0)
+	if not ok then
+		logMsg("User waypoint: unable to write FMS entry: " .. tostring(error_message))
+		return
+	end
+
+	local displayed_ok, displayed_error = pcall(XPLMSetDisplayedFMSEntry, fms_index)
+	local destination_ok, destination_error = pcall(XPLMSetDestinationFMSEntry, fms_index)
+	if not displayed_ok or not destination_ok then
+		logMsg("User waypoint: unable to select FMS entry: " ..
+			tostring(displayed_error or destination_error))
+		return
+	end
+
+	logMsg("FlyWithLua Info: Sending Lat/Lon to FMS entry " .. fms_index)
+end
 
 function MFD_FMS_outerL()
 if user_waypoint_window_on == 1 and lat_lon_digits_place >= 2 and lat_lon_digits_place <= 16 then
@@ -101,6 +162,7 @@ elseif user_waypoint_window_on == 1 and lat_lon_digits_place == 15 then
 elseif user_waypoint_window_on == 1 and lat_lon_digits_place == 16 then
 	new_lon = new_lon + latlon_digits_mod_16
 end 
+	clamp_coordinates()
 
 if user_waypoint_window_on == 0 then
 	command_once("sim/GPS/g1000n3_fms_inner_down")
@@ -144,6 +206,7 @@ elseif user_waypoint_window_on == 1 and lat_lon_digits_place == 15 then
 elseif user_waypoint_window_on == 1 and lat_lon_digits_place == 16 then
 	new_lon = new_lon - latlon_digits_mod_16
 end 
+	clamp_coordinates()
 
 if user_waypoint_window_on == 0 then
 	command_once("sim/GPS/g1000n3_fms_inner_up")
@@ -179,15 +242,9 @@ function MFD_CLR()
     end
 end
 
-function get_data()
-    fms_dest[0] = XPLMGetDestinationFMSEntry(void)
-    fms_dest[1],fms_dest[2],fms_dest[3],fms_dest[4],fms_dest[5],fms_dest[6],fms_dest[7],fms_dest[8],fms_dest[9] =  XPLMGetFMSEntryInfo(fms_dest[0])
-end
-
 function usr_point_on_build(usr_point_wnd, x, y)
-	    get_data()
-	
 -- -----------------------------------added 4/02 begin -------------------------------------------------
+    clamp_coordinates()
 local floor_latitude = math.floor(new_lat)
 local floor_longitude = math.floor(new_lon)
 
@@ -342,17 +399,15 @@ local	lon_deg_decimal3 = (lon_deg_decimal - lon_deg_decimal2)*100
   end
 
   if imgui.Button("Send to FPL entry") then
-        logMsg("FlyWithLua Info: Sending Lat/Lon to FMS")
-        XPLMSetFMSEntryLatLon(new_entry, new_lat, new_lon, 0)
-        XPLMSetDisplayedFMSEntry(new_entry)
-        XPLMSetDestinationFMSEntry(new_entry)
+        send_waypoint_to_fms()
     end
 
 end
 
 function get_location()
-	new_lat = LATITUDE
-	new_lon = LONGITUDE
+	new_lat = tonumber(LATITUDE) or 0.0
+	new_lon = tonumber(LONGITUDE) or 0.0
+	clamp_coordinates()
 end
 
 

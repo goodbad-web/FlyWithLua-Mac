@@ -89,6 +89,7 @@ struct FlyWithLuaPositiveEdgeFlip {
 static std::vector<FlyWithLuaPositiveEdgeFlip> gPositiveEdgeFlips;
 static std::vector<int> gJoystickButtonValues;
 static std::vector<hid_device*> gOpenHIDDevices;
+static bool gHIDInitialized = false;
 static constexpr size_t kHIDReportBufferSize = 4096;
 static std::string gDrawCommand;
 static std::string gEveryFrameCommand;
@@ -113,6 +114,7 @@ static float gSometimesAccumulator = 0.0f;
 static int gDiscoveredScriptCount = 0;
 static int gLoadedScriptCount = 0;
 static int gFailedScriptCount = 0;
+static std::vector<FlyWithLuaScriptFailure> gScriptLoadFailures;
 
 extern "C" void flywithlua_toggle_window(void);
 extern "C" void flywithlua_update_current_altitude(double altitude);
@@ -612,6 +614,15 @@ static void WriteDebugFile() {
     debugFile << "Scripts discovered: " << gDiscoveredScriptCount << "\n";
     debugFile << "Scripts loaded: " << gLoadedScriptCount << "\n";
     debugFile << "Scripts failed: " << gFailedScriptCount << "\n\n";
+    debugFile << "*** Script load failures ***\n";
+    if (gScriptLoadFailures.empty()) {
+        debugFile << "No script load failures.\n";
+    } else {
+        for (const FlyWithLuaScriptFailure& failure : gScriptLoadFailures) {
+            debugFile << failure.fileName << ": " << failure.message << "\n";
+        }
+    }
+    debugFile << "\n";
     debugFile << "*** Draw callback ***\n" << gDrawCommand << "\n";
     debugFile << "*** Every frame callback ***\n" << gEveryFrameCommand << "\n";
     debugFile << "*** Often callback ***\n" << gOftenCommand << "\n";
@@ -1684,7 +1695,8 @@ static bool LuaHIDDeviceArgument(lua_State* state, int index, hid_device*& devic
         return false;
     }
     device = static_cast<hid_device*>(lua_touserdata(state, index));
-    return device != nullptr;
+    return device != nullptr &&
+           std::find(gOpenHIDDevices.begin(), gOpenHIDDevices.end(), device) != gOpenHIDDevices.end();
 }
 
 static void TrackHIDDevice(hid_device* device) {
@@ -1704,6 +1716,14 @@ static void CloseAllOpenHIDDevices() {
         if (device) {
             hid_close(device);
         }
+    }
+}
+
+static void ShutdownHID() {
+    CloseAllOpenHIDDevices();
+    if (gHIDInitialized) {
+        hid_exit();
+        gHIDInitialized = false;
     }
 }
 
@@ -1734,6 +1754,11 @@ static void SetHIDTableField(lua_State* state, const char* key, const char* valu
 
 static int LuaCreateHIDTable(lua_State* state) {
     lua_newtable(state);
+    if (!gHIDInitialized) {
+        lua_pushinteger(state, 0);
+        return 2;
+    }
+
     int count = 0;
     hid_device_info* devices = hid_enumerate(0, 0);
     for (hid_device_info* device = devices; device; device = device->next) {
@@ -1941,16 +1966,21 @@ static int LuaHIDSendFilledFeatureReport(lua_State* state) {
         return 0;
     }
 
+    const int reportID = static_cast<int>(lua_tointeger(state, 2));
     const int length = static_cast<int>(lua_tointeger(state, 3));
-    if (length <= 0 || length > static_cast<int>(kHIDReportBufferSize)) {
+    const int payloadArgumentCount = lua_gettop(state) - 3;
+    if (reportID < 0 || reportID > 255 ||
+        length <= 0 || length > static_cast<int>(kHIDReportBufferSize) ||
+        payloadArgumentCount > length - 1) {
         LogLuaCompatibilityArgumentError("hid_send_filled_feature_report");
         return 0;
     }
 
-    // Keep the legacy FlyWithLua calling convention: argument three is both
-    // the requested report length and the first byte of the padded report.
+    // HIDAPI expects the report ID in byte zero and the total report length
+    // includes that byte. The remaining legacy arguments are payload bytes;
+    // zero-fill the unused tail to preserve the original report size.
     std::vector<unsigned char> bytes(static_cast<size_t>(length), 0);
-    bytes[0] = static_cast<unsigned char>(length);
+    bytes[0] = static_cast<unsigned char>(reportID);
     for (int index = 4; index <= lua_gettop(state) && index - 3 < length; ++index) {
         if (!lua_isnumber(state, index)) {
             LogLuaCompatibilityArgumentError("hid_send_filled_feature_report");
@@ -1988,13 +2018,14 @@ static int LuaHIDGetFeatureReport(lua_State* state) {
         return 1;
     }
 
-    // hid_get_feature_report() includes the report ID in result. The legacy
-    // Lua API exposes the payload bytes after the count value.
-    const int payloadCount = std::min(result - 1, length);
-    for (int index = 0; index < payloadCount; ++index) {
+    // hid_get_feature_report() includes the report ID in both the result and
+    // byte zero. Return every byte after the count, including that ID, as the
+    // legacy Lua API expects.
+    const int returnedByteCount = std::min(result, static_cast<int>(bytes.size()));
+    for (int index = 0; index < returnedByteCount; ++index) {
         lua_pushinteger(state, bytes[static_cast<size_t>(index)]);
     }
-    return 1 + payloadCount;
+    return 1 + returnedByteCount;
 }
 
 static void SetPositiveEdgeFlipValue(FlyWithLuaPositiveEdgeFlip& flip, bool useOnValue) {
@@ -2069,6 +2100,12 @@ static int LuaCreatePositiveEdgeFlip(lua_State* state) {
     flip.button = button;
     flip.dataRef = dataRef;
     flip.dataType = XPLMGetDataRefTypes(dataRef);
+    const XPLMDataTypeID supportedTypes = xplmType_Int | xplmType_Float | xplmType_Double |
+                                          xplmType_FloatArray | xplmType_IntArray;
+    if ((flip.dataType & supportedTypes) == 0) {
+        XPLMDebugString(("FlyWithLua Warning: create_positive_edge_flip() DataRef has no supported type: " + path + "\n").c_str());
+        return 0;
+    }
     flip.index = lua_isnumber(state, 3) ? static_cast<int>(lua_tointeger(state, 3)) : 0;
     if (flip.index < 0) {
         LogLuaCompatibilityArgumentError("create_positive_edge_flip");
@@ -2234,7 +2271,7 @@ static void RegisterFlyWithLuaCompatibilityFunctions(lua_State* state) {
 }
 
 static void ResetLuaRuntimeState() {
-    CloseAllOpenHIDDevices();
+    ShutdownHID();
     gPositiveEdgeFlips.clear();
     gJoystickButtonValues.clear();
     if (L) {
@@ -2269,7 +2306,9 @@ extern "C" void flywithlua_reload_scripts(void) {
 
     RunLuaStringChunk(gOnExitCommand, "do_on_exit");
     flwnd::deinitFloatingWindowSupport();
-    fmodint::fmod_uninitialize();
+    // Keep X-Plane-owned FMOD channel groups alive across a Lua reload. Only
+    // sounds created by the old Lua state need to be released here.
+    fmodint::deinitFmodSupport();
     ResetLuaRuntimeState();
 
     if (!InitializeLuaRuntime(false)) {
@@ -2291,8 +2330,10 @@ static bool InitializeLuaRuntime(bool registerFlightLoop) {
     }
 
     luaL_openlibs(L);
-    if (hid_init() != 0) {
+    if (!gHIDInitialized && hid_init() != 0) {
         XPLMDebugString("FlyWithLua-Mac Warning: HIDAPI initialization failed; HID functions will remain unavailable.\n");
+    } else {
+        gHIDInitialized = true;
     }
     if (!RegisterLuaBuiltinModule(L, "socket.core", luaopen_socket_core)) {
         XPLMDebugString("FlyWithLua-Mac Warning: Could not register built-in socket.core module.\n");
@@ -2622,6 +2663,12 @@ end
 function set(n, v, index)
     return mac_native.set_dataref(n, v, index)
 end
+
+-- Legacy FlyWithLua aliases. DataRef() is the historical capitalization and
+-- set_array() receives (name, index, value), unlike the native set() order.
+function set_array(n, index, v)
+    return set(n, v, index)
+end
 local globalMeta = getmetatable(_G) or {}
 local previousIndex = globalMeta.__index
 local previousNewIndex = globalMeta.__newindex
@@ -2683,6 +2730,8 @@ function dataref(name, path, mode, index)
         type = refType
     }
 end
+
+DataRef = dataref
 )lua";
     ReplaceAll(initScript, "__INTERNALS__", internalsDir);
     ReplaceAll(initScript, "__MODULES__", modulesDir);
@@ -2766,6 +2815,7 @@ namespace flywithlua {
         std::vector<FlyWithLuaScriptFailure> failures;
 
         std::vector<std::string> fileNames;
+        gScriptLoadFailures.clear();
         gDiscoveredScriptCount = 0;
         gLoadedScriptCount = 0;
         gFailedScriptCount = 0;
@@ -2789,7 +2839,7 @@ namespace flywithlua {
         }
 
         for (const std::string& fileName : fileNames) {
-            std::string fullPath = scriptDir + "/" + fileName;
+            std::string fullPath = JoinPath(scriptDir, fileName);
             logMsg(logToDevCon, "Loading script: " + fileName);
             if (luaL_dofile(FWLLua, fullPath.c_str())) {
                 const char* luaError = lua_tostring(FWLLua, -1);
@@ -2805,6 +2855,7 @@ namespace flywithlua {
 
         gLoadedScriptCount = loadedScripts;
         gFailedScriptCount = failedScripts;
+        gScriptLoadFailures = failures;
         const std::string failuresJson = BuildScriptLoadFailuresJson(failures);
         flywithlua_update_script_load_summary(gDiscoveredScriptCount, loadedScripts, failedScripts, failuresJson.c_str());
         flywithlua_update_last_log_message((std::string("Loaded scripts: ") + std::to_string(loadedScripts) + "/" +
@@ -2903,8 +2954,7 @@ PLUGIN_API void XPluginStop(void) {
         UnregisterFlyWithLuaMenu();
         ClearFlyWithLuaCommands();
         flywithlua_update_script_load_summary(0, 0, 0, "[]");
-        CloseAllOpenHIDDevices();
-        hid_exit();
+        ShutdownHID();
         gPositiveEdgeFlips.clear();
         gJoystickButtonValues.clear();
         gPlaneICAODataRef = nullptr;

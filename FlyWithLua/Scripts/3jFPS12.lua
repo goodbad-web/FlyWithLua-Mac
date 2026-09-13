@@ -2554,13 +2554,11 @@ end
 
 -- check xp version
 if jjjFPS_param("xpver") ~= XPLANE_VERSION then
-	if jjjFPS_param("xpver") == "" then
-		-- new install
-		jjjFPS_alertNewInstall()
-	else 
-		-- xp update
-		jjjFPS_alertUpdateXP()
-	end
+	-- Do not open a modal update notice here.  The notice can prevent X-Plane
+	-- and the plugin windows from receiving input before FlyWithLua's UI is ready.
+	-- The compatibility-sensitive DataRefs are checked/retried separately above.
+	jjjFPS_setParam("xpver", XPLANE_VERSION)
+	jjjLib1.saveParams(jjjFPS_plId, "global")
 end
 
 add_macro("3jFPS12: open/close settings", "jjjFPS_togglePanel()")

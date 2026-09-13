@@ -211,7 +211,9 @@ local function test_user_waypoint()
 	env.float_wnd_set_imgui_builder = function() end
 	env.float_wnd_set_onclose = function() end
 	env.logMsg = function() end
-	env.imgui = setmetatable({}, { __index = function() return function() end end })
+	env.imgui = setmetatable({
+		constant = { Col = { Text = 0 } },
+	}, { __index = function() return function() end end })
 
 	load_in_environment(root .. "/FlyWithLua/Scripts/USER_WAYPOINT_ver1.lua", env)
 	env.usr_point_show_wnd()
@@ -219,6 +221,7 @@ local function test_user_waypoint()
 	env.usr_point_show_wnd()
 	assert(created == 1)
 	assert(env.usr_point_wnd == first_window)
+	assert(pcall(env.usr_point_on_build, first_window, 0, 0))
 
 	env.closed_usr_point_wnd(first_window)
 	assert(env.usr_point_wnd == nil)
