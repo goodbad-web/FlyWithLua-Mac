@@ -44,11 +44,22 @@ extern "C" int flywithlua_draw_hidpi_text(int x,
                                           float logicalSize,
                                           const char* family,
                                           int weight);
+extern "C" double flywithlua_measure_hidpi_text(const char* text,
+                                                float logicalSize,
+                                                const char* family,
+                                                int weight);
 
 constexpr double kSnapshotIntervalSeconds = 0.2;
 constexpr double kHUDDisplayIntervalSeconds = 0.5;
 constexpr double kMinimumDeltaSeconds = 1.0 / 240.0;
 constexpr double kMaximumDeltaSeconds = 1.0;
+constexpr int kHUDMinimumWidth = 190;
+constexpr int kHUDHorizontalPadding = 24;
+constexpr int kHUDGraphMinimumWidth = 120;
+constexpr int kHUDGraphMaximumWidth = 240;
+constexpr int kHUDGraphGap = 14;
+constexpr double kHUDGraphEnvelopeSpeedFPS = 4.0;
+constexpr double kHUDStutterHoldSeconds = 0.5;
 
 struct NumericDataRef {
     XPLMDataRef ref = nullptr;
@@ -403,8 +414,9 @@ public:
         }
 
         const int detailLines = showDetails ? 4 : 2;
-        const int boxHeight = std::max(2, detailLines * lineHeight + 8);
-        const int boxWidth = std::max(190, hudWidth_);
+        const int graphLines = showGraph_ ? graphRowCount() : 0;
+        const int boxHeight = std::max(2, std::max(detailLines, graphLines) * lineHeight + 8);
+        const int boxWidth = hudBoxWidth(showDetails);
         const int x = resolveHUDX(screenWidth, boxWidth);
         const int y = resolveHUDY(screenHeight, boxHeight);
         const float alpha = static_cast<float>(std::max(0.15, std::min(1.0, hudAlpha_)));
@@ -439,21 +451,22 @@ public:
         const float textColor[3] = {1.0f, 1.0f, 1.0f};
         const int textX = x + 12;
         const int topY = y + boxHeight - lineHeight;
-        drawText(textColor, textX, topY, modeLabel() + "  " + profileLabel(), alpha,
+        drawText(textColor, textX, topY, hudModeLine(), alpha,
                  "sf_pro_text", 600);
-        drawText(textColor, textX, topY - lineHeight,
-                 label("FPS", "FPS") + " " + hudNumberString(hudFPS_, 1, false) +
-                 "  " + label("Target", "目標") + " " + hudNumberString(controller_.state().targetFPS, 0, true),
+        drawText(textColor, textX, topY - lineHeight, hudFPSLine(),
                  alpha, "sf_mono", 600);
 
         if (showDetails) {
-            drawText(textColor, textX, topY - lineHeight * 2,
-                     label("CPU", "CPU") + " " + hudNumberString(hudCPUMilliseconds_, 1, false) +
-                     "ms  " + label("GPU", "GPU") + " " + hudNumberString(hudGPUMilliseconds_, 1, false) + "ms",
+            drawText(textColor, textX, topY - lineHeight * 2, hudMetricsLine(),
                      alpha, "sf_mono", 400);
-            drawText(textColor, textX, topY - lineHeight * 3,
-                     label("Quality", "品質") + " " + qualitySummary(),
+            drawText(textColor, textX, topY - lineHeight * 3, hudQualityLine(),
                      alpha, "sf_mono", 400);
+        }
+
+        if (showGraph_) {
+            XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
+            const int graphX = textX + hudTextColumnWidth(showDetails) + kHUDGraphGap;
+            drawGraph(graphX, topY, hudGraphWidth(), lineHeight, alpha);
         }
 
         if (hudEditing_) {
@@ -476,7 +489,7 @@ public:
         const int localX = x - screenLeft;
         const int localY = y - screenBottom;
         const int boxHeight = (hudEditing_ ? 5 : 4) * std::max(12, hudLineHeight_) + 8;
-        const int boxWidth = std::max(190, hudWidth_);
+        const int boxWidth = hudBoxWidth(true);
         const bool inside = isInsideHUD(localX, localY, width, height, boxWidth, boxHeight);
 
         if (mouseStatus == xplm_MouseDown) {
@@ -529,13 +542,14 @@ public:
         const int localX = x - screenLeft;
         const int localY = y - screenBottom;
         const int boxHeight = 5 * std::max(12, hudLineHeight_) + 8;
-        if (!isInsideHUD(localX, localY, width, height, std::max(190, hudWidth_), boxHeight)) {
+        if (!isInsideHUD(localX, localY, width, height, hudBoxWidth(true), boxHeight)) {
             return 0;
         }
         const int direction = (wheel == 0 ? 1 : (wheel > 0 ? 1 : -1));
         const int amount = std::max(1, std::abs(clicks)) * direction;
         hudLineHeight_ = std::max(12, std::min(30, hudLineHeight_ + amount));
-        hudWidth_ = std::max(190, std::min(420, hudWidth_ + amount * 8));
+        hudWidth_ = std::max(kHUDMinimumWidth, std::min(420, hudWidth_ + amount * 8));
+        invalidateHUDLayout();
         dirty_ = true;
         snapshotDirty_ = true;
         callLuaAdapter("hudSize", std::to_string(hudWidth_) + "," + std::to_string(hudLineHeight_));
@@ -632,6 +646,13 @@ private:
 
         displayMode_ = readStringField(state, tableIndex, "displayMode", displayMode_);
         showDetailsPreference_ = readBoolField(state, tableIndex, "showDetails", showDetailsPreference_);
+        showGraph_ = readBoolField(state, tableIndex, "showGraph", showGraph_);
+        showUtilisation_ = readBoolField(state, tableIndex, "showUtilisation", showUtilisation_);
+        fpsMeterFrom_ = readNumberField(state, tableIndex, "fpsMeterFrom", fpsMeterFrom_);
+        fpsMeterTo_ = readNumberField(state, tableIndex, "fpsMeterTo", fpsMeterTo_);
+        fpsMeterBad_ = readNumberField(state, tableIndex, "fpsMeterBad", fpsMeterBad_);
+        fpsMeterGood_ = readNumberField(state, tableIndex, "fpsMeterGood", fpsMeterGood_);
+        normaliseFPSMeterScale();
         hudAlpha_ = readNumberField(state, tableIndex, "hudAlpha", hudAlpha_);
         hudX_ = static_cast<int>(std::lround(readNumberField(state, tableIndex, "hudX", hudX_)));
         hudY_ = static_cast<int>(std::lround(readNumberField(state, tableIndex, "hudY", hudY_)));
@@ -677,6 +698,7 @@ private:
 
         config_ = newConfig;
         profile_ = newProfile;
+        invalidateHUDLayout();
         if (firstRegistration || !oldActive || profileChanged) {
             controller_.reset(config_);
             clearAppliedCache();
@@ -829,15 +851,49 @@ private:
         hudCPUMilliseconds_ = 0.0;
         hudGPUMilliseconds_ = 0.0;
         hudFeatureValues_.fill(0.0);
+        graphFPSMin_ = 0.0;
+        graphFPSMax_ = 0.0;
+        graphCPUUsage_ = 0.0;
+        graphGPUUsage_ = 0.0;
+        graphInitialized_ = false;
+        stutterHoldSeconds_ = 0.0;
         hudDisplayInitialized_ = false;
+        invalidateHUDLayout();
     }
 
     void updateHUDDisplay(double deltaSeconds) {
         const auto& state = controller_.state();
+        stutterHoldSeconds_ = std::max(0.0, stutterHoldSeconds_ - deltaSeconds);
+        const double targetFrameSeconds = 1.0 / std::max(1.0, state.targetFPS);
+        if (deltaSeconds > std::max(0.05, targetFrameSeconds * 1.5) &&
+            state.fps < state.targetFPS * 0.9) {
+            stutterHoldSeconds_ = kHUDStutterHoldSeconds;
+        }
+
+        if (showGraph_) {
+            if (!graphInitialized_) {
+                const double initialFPS = std::max(0.0, state.fps);
+                graphFPSMin_ = initialFPS;
+                graphFPSMax_ = initialFPS;
+                graphInitialized_ = true;
+            } else {
+                updateGraphEnvelope(std::max(0.0, state.fps), deltaSeconds);
+            }
+        } else {
+            graphInitialized_ = false;
+        }
+
         if (!hudDisplayInitialized_) {
             hudFPS_ = state.fps;
             hudCPUMilliseconds_ = state.cpuMilliseconds;
             hudGPUMilliseconds_ = state.gpuMilliseconds;
+            const double frameBudgetMilliseconds = 1000.0 / std::max(1.0, state.targetFPS);
+            graphCPUUsage_ = state.cpuTimeAvailable
+                ? std::max(0.0, std::min(2.0, state.cpuMilliseconds / frameBudgetMilliseconds))
+                : 0.0;
+            graphGPUUsage_ = state.gpuTimeAvailable
+                ? std::max(0.0, std::min(2.0, state.gpuMilliseconds / frameBudgetMilliseconds))
+                : 0.0;
             for (size_t index = 0; index < threejfps::kFeatureCount; ++index) {
                 hudFeatureValues_[index] = state.features[index].currentValue;
             }
@@ -857,9 +913,17 @@ private:
         hudFPS_ = frameCount / elapsed;
         hudCPUMilliseconds_ = hudDisplayCPUTotal_ / frameCount;
         hudGPUMilliseconds_ = hudDisplayGPUTotal_ / frameCount;
+        const double frameBudgetMilliseconds = 1000.0 / std::max(1.0, state.targetFPS);
+        graphCPUUsage_ = state.cpuTimeAvailable
+            ? smoothGraphUsage(graphCPUUsage_, hudCPUMilliseconds_ / frameBudgetMilliseconds)
+            : 0.0;
+        graphGPUUsage_ = state.gpuTimeAvailable
+            ? smoothGraphUsage(graphGPUUsage_, hudGPUMilliseconds_ / frameBudgetMilliseconds)
+            : 0.0;
         for (size_t index = 0; index < threejfps::kFeatureCount; ++index) {
             hudFeatureValues_[index] = state.features[index].currentValue;
         }
+        invalidateHUDLayout();
 
         hudDisplayElapsed_ = 0.0;
         hudDisplayFrameCount_ = 0.0;
@@ -1000,16 +1064,26 @@ private:
         if (type == "setMode") {
             callLuaAdapter("mode", jsonStringField(command, "value"));
             dirty_ = true;
+            invalidateHUDLayout();
             return;
         }
         if (type == "setProfile") {
             callLuaAdapter("profile", jsonStringField(command, "value"));
             dirty_ = true;
+            invalidateHUDLayout();
             return;
         }
         if (type == "setParameter") {
             callLuaParameter(jsonStringField(command, "key"), jsonRawField(command, "value"));
             dirty_ = true;
+            invalidateHUDLayout();
+            return;
+        }
+        if (type == "setGraph") {
+            callLuaAdapter("graph", jsonBoolField(command, "value", showGraph_) ? "true" : "false");
+            dirty_ = true;
+            invalidateHUDLayout();
+            snapshotDirty_ = true;
             return;
         }
         if (type == "save") {
@@ -1027,15 +1101,18 @@ private:
         if (type == "defaults") {
             callLuaAdapter("defaults", std::string());
             dirty_ = true;
+            invalidateHUDLayout();
             return;
         }
         if (type == "setLanguage") {
             callLuaAdapter("language", jsonStringField(command, "value"));
             dirty_ = true;
+            invalidateHUDLayout();
             return;
         }
         if (type == "setHUDEditing") {
             hudEditing_ = jsonBoolField(command, "value", false);
+            invalidateHUDLayout();
             snapshotDirty_ = true;
             return;
         }
@@ -1045,12 +1122,14 @@ private:
             const FeatureId feature = featureFromString(id);
             controller_.setManualOverride(feature, value);
             applyControllerOutputs();
+            invalidateHUDLayout();
             snapshotDirty_ = true;
             return;
         }
         if (type == "clearFeatureOverride") {
             controller_.clearManualOverrides();
             applyControllerOutputs();
+            invalidateHUDLayout();
             snapshotDirty_ = true;
             return;
         }
@@ -1150,6 +1229,8 @@ private:
              << ",\"language\":\"" << jsonEscape(language_) << "\""
              << ",\"resolvedLanguage\":\"" << resolvedLanguage() << "\""
              << ",\"hudEditing\":" << (hudEditing_ ? "true" : "false")
+             << ",\"showGraph\":" << (showGraph_ ? "true" : "false")
+             << ",\"showUtilisation\":" << (showUtilisation_ ? "true" : "false")
              << ",\"dataRefAvailability\":{"
              << "\"lod\":" << (lodBias_.ref != nullptr ? "true" : "false")
              << ",\"shadows\":" << (shadowInterior_.ref != nullptr && shadowExterior_.ref != nullptr &&
@@ -1197,6 +1278,309 @@ private:
 
     std::string profileLabel() const {
         return profile_.empty() ? "-" : profile_;
+    }
+
+    std::string hudModeLine() const {
+        return modeLabel() + "  " + profileLabel();
+    }
+
+    std::string hudFPSLine() const {
+        return label("FPS", "FPS") + " " + hudNumberString(hudFPS_, 1, false) +
+               "  " + label("Target", "目標") + " " +
+               hudNumberString(controller_.state().targetFPS, 0, true);
+    }
+
+    std::string hudMetricsLine() const {
+        const auto& state = controller_.state();
+        const std::string cpu = state.cpuTimeAvailable
+            ? hudNumberString(hudCPUMilliseconds_, 1, false)
+            : "--";
+        const std::string gpu = state.gpuTimeAvailable
+            ? hudNumberString(hudGPUMilliseconds_, 1, false)
+            : "--";
+        return label("CPU", "CPU") + " " + cpu +
+               (state.cpuTimeAvailable ? "ms  " : "    ") +
+               label("GPU", "GPU") + " " + gpu +
+               (state.gpuTimeAvailable ? "ms" : "");
+    }
+
+    std::string hudQualityLine() const {
+        return label("Quality", "品質") + " " + qualitySummary();
+    }
+
+    double measureHUDText(const std::string& text,
+                          const char* family,
+                          int weight) const {
+        const double measured = flywithlua_measure_hidpi_text(
+            text.c_str(),
+            static_cast<float>(std::max(12, hudLineHeight_)),
+            family,
+            weight);
+        if (std::isfinite(measured) && measured >= 0.0) {
+            return measured;
+        }
+
+        const XPLMFontID font = std::string(family) == "sf_mono"
+            ? xplmFont_Basic
+            : xplmFont_Proportional;
+        const size_t maximumLength = static_cast<size_t>(std::numeric_limits<int>::max());
+        const int length = static_cast<int>(std::min(text.size(), maximumLength));
+        return static_cast<double>(XPLMMeasureString(font, text.c_str(), length));
+    }
+
+    int hudGraphWidth() const {
+        const int derivedWidth = static_cast<int>(std::lround(
+            static_cast<double>(std::max(12, hudLineHeight_)) * 9.0));
+        return std::max(kHUDGraphMinimumWidth,
+                        std::min(kHUDGraphMaximumWidth, derivedWidth));
+    }
+
+    bool qualityMarkerVisible() const {
+        if (controller_.state().mode == Mode::Off) return false;
+        for (const auto& feature : controller_.state().features) {
+            if (feature.enabled && feature.available) return true;
+        }
+        return false;
+    }
+
+    int graphRowCount() const {
+        int rows = 1; // FPS meter
+        if (showUtilisation_ && controller_.state().cpuTimeAvailable) ++rows;
+        if (showUtilisation_ && controller_.state().gpuTimeAvailable) ++rows;
+        if (qualityMarkerVisible()) ++rows;
+        return rows;
+    }
+
+    void measureHUDTextIfNeeded(bool showDetails) const {
+        bool& valid = showDetails ? hudDetailsWidthValid_ : hudCompactWidthValid_;
+        int& measuredWidth = showDetails ? hudMeasuredDetailsWidth_ : hudMeasuredCompactWidth_;
+        if (valid) return;
+
+        double widestLine = measureHUDText(hudModeLine(), "sf_pro_text", 600);
+        widestLine = std::max(widestLine, measureHUDText(hudFPSLine(), "sf_mono", 600));
+        if (showDetails) {
+            widestLine = std::max(widestLine, measureHUDText(hudMetricsLine(), "sf_mono", 400));
+            widestLine = std::max(widestLine, measureHUDText(hudQualityLine(), "sf_mono", 400));
+        }
+        if (hudEditing_) {
+            widestLine = std::max(
+                widestLine,
+                measureHUDText(label("EDIT HUD", "HUD編集"), "sf_pro_text", 600));
+        }
+        measuredWidth = static_cast<int>(std::ceil(widestLine)) + kHUDHorizontalPadding;
+        valid = true;
+    }
+
+    int hudTextColumnWidth(bool showDetails) const {
+        measureHUDTextIfNeeded(showDetails);
+        const int measuredWidth = showDetails ? hudMeasuredDetailsWidth_ : hudMeasuredCompactWidth_;
+        return std::max(0, measuredWidth - kHUDHorizontalPadding);
+    }
+
+    int hudBoxWidth(bool showDetails) const {
+        measureHUDTextIfNeeded(showDetails);
+        const int measuredWidth = showDetails ? hudMeasuredDetailsWidth_ : hudMeasuredCompactWidth_;
+        int contentWidth = measuredWidth;
+        if (showGraph_) {
+            contentWidth = std::max(
+                contentWidth,
+                hudTextColumnWidth(showDetails) + kHUDGraphGap + hudGraphWidth() +
+                    kHUDHorizontalPadding);
+        }
+        return std::max(kHUDMinimumWidth, std::max(hudWidth_, contentWidth));
+    }
+
+    void normaliseFPSMeterScale() {
+        fpsMeterFrom_ = std::max(1.0, std::min(240.0, fpsMeterFrom_));
+        fpsMeterTo_ = std::max(fpsMeterFrom_ + 1.0, std::min(300.0, fpsMeterTo_));
+        fpsMeterBad_ = std::max(fpsMeterFrom_, std::min(fpsMeterTo_, fpsMeterBad_));
+        fpsMeterGood_ = std::max(fpsMeterBad_, std::min(fpsMeterTo_, fpsMeterGood_));
+    }
+
+    void updateGraphEnvelope(double fps, double deltaSeconds) {
+        const double heldFPS = hudFPS_ > 0.0 ? hudFPS_ : fps;
+        graphFPSMin_ += kHUDGraphEnvelopeSpeedFPS * deltaSeconds;
+        if (fps < graphFPSMin_) {
+            graphFPSMin_ = fps;
+        } else if (graphFPSMin_ > heldFPS) {
+            graphFPSMin_ = heldFPS;
+        }
+        graphFPSMin_ = std::max(5.0, graphFPSMin_);
+
+        graphFPSMax_ -= kHUDGraphEnvelopeSpeedFPS * deltaSeconds;
+        if (fps > graphFPSMax_) {
+            graphFPSMax_ = fps;
+        } else if (graphFPSMax_ < heldFPS) {
+            graphFPSMax_ = heldFPS;
+        }
+        graphFPSMax_ = std::min(fpsMeterTo_ + 20.0, graphFPSMax_);
+        if (graphFPSMax_ < graphFPSMin_) graphFPSMax_ = graphFPSMin_;
+    }
+
+    static double smoothGraphUsage(double previous, double current) {
+        current = std::max(0.0, std::min(2.0, current));
+        if (previous <= 0.0) return current;
+        return previous * 0.7 + current * 0.3;
+    }
+
+    static void drawGraphRect(float x,
+                              float y,
+                              float width,
+                              float height,
+                              float red,
+                              float green,
+                              float blue,
+                              float alpha) {
+        if (width <= 0.0f || height <= 0.0f) return;
+        glColor4f(red, green, blue, alpha);
+        glBegin(GL_QUADS);
+        glVertex2f(x, y);
+        glVertex2f(x + width, y);
+        glVertex2f(x + width, y + height);
+        glVertex2f(x, y + height);
+        glEnd();
+    }
+
+    void drawUsageGraph(int x,
+                        int rowBottom,
+                        int width,
+                        int lineHeight,
+                        double usage,
+                        double headroom,
+                        float alpha) const {
+        const int barY = rowBottom + 2;
+        const int barHeight = std::max(4, lineHeight - 5);
+        drawGraphRect(static_cast<float>(x), static_cast<float>(barY),
+                      static_cast<float>(width), static_cast<float>(barHeight),
+                      0.08f, 0.08f, 0.08f, alpha * 0.8f);
+
+        const double clampedUsage = std::max(0.0, std::min(1.0, usage));
+        const double threshold = std::max(0.0, std::min(1.0, 1.0 - headroom / 100.0));
+        const float fillRed = usage > 1.0 ? 0.9f : (usage > threshold ? 0.95f : 0.8f);
+        const float fillGreen = usage > 1.0 ? 0.2f : (usage > threshold ? 0.7f : 0.85f);
+        const float fillBlue = usage > 1.0 ? 0.15f : 0.25f;
+        drawGraphRect(static_cast<float>(x), static_cast<float>(barY),
+                      static_cast<float>(width * clampedUsage), static_cast<float>(barHeight),
+                      fillRed, fillGreen, fillBlue, alpha);
+
+        const float thresholdX = static_cast<float>(x) +
+            static_cast<float>(width * threshold);
+        drawGraphRect(thresholdX, static_cast<float>(barY),
+                      std::max(1.0f, static_cast<float>(std::max(1, lineHeight / 8))),
+                      static_cast<float>(barHeight), 1.0f, 1.0f, 1.0f, alpha * 0.45f);
+    }
+
+    void drawFPSGraph(int x,
+                      int rowBottom,
+                      int width,
+                      int lineHeight,
+                      float alpha) const {
+        const int barY = rowBottom + 2;
+        const int barHeight = std::max(4, lineHeight - 5);
+        const double span = std::max(1.0, fpsMeterTo_ - fpsMeterFrom_);
+        const auto position = [this, x, width, span](double value) {
+            const double normalized = std::max(0.0, std::min(1.0,
+                (value - fpsMeterFrom_) / span));
+            return static_cast<float>(x + normalized * width);
+        };
+
+        const float badX = position(fpsMeterBad_);
+        const float goodX = position(fpsMeterGood_);
+        const float rightX = static_cast<float>(x + width);
+        drawGraphRect(static_cast<float>(x), static_cast<float>(barY),
+                      std::max(0.0f, badX - x), static_cast<float>(barHeight),
+                      0.72f, 0.05f, 0.05f, alpha);
+        drawGraphRect(badX, static_cast<float>(barY),
+                      std::max(0.0f, goodX - badX), static_cast<float>(barHeight),
+                      0.82f, 0.68f, 0.02f, alpha);
+        drawGraphRect(goodX, static_cast<float>(barY),
+                      std::max(0.0f, rightX - goodX), static_cast<float>(barHeight),
+                      0.05f, 0.62f, 0.08f, alpha);
+
+        const float minX = position(graphFPSMin_);
+        const float maxX = position(graphFPSMax_);
+        const float rangeLeft = std::min(minX, maxX);
+        const float rangeWidth = std::max(1.0f, std::abs(maxX - minX));
+        drawGraphRect(rangeLeft, static_cast<float>(barY + barHeight / 2),
+                      rangeWidth, std::max(1.0f, static_cast<float>(lineHeight / 8)),
+                      1.0f, 1.0f, 1.0f, alpha * 0.75f);
+
+        const float fpsX = position(hudFPS_);
+        const float markerWidth = std::max(2.0f, static_cast<float>(lineHeight / 8));
+        drawGraphRect(fpsX - markerWidth * 0.5f, static_cast<float>(rowBottom),
+                      markerWidth, static_cast<float>(lineHeight - 1),
+                      1.0f, 1.0f, 1.0f, alpha);
+
+        if (stutterHoldSeconds_ > 0.0) {
+            drawGraphRect(static_cast<float>(x), static_cast<float>(barY),
+                          static_cast<float>(width), std::max(1.0f, markerWidth * 0.65f),
+                          0.95f, 0.08f, 0.05f, alpha);
+            drawGraphRect(static_cast<float>(x),
+                          static_cast<float>(barY + barHeight) - std::max(1.0f, markerWidth * 0.65f),
+                          static_cast<float>(width), std::max(1.0f, markerWidth * 0.65f),
+                          0.95f, 0.08f, 0.05f, alpha);
+        }
+    }
+
+    double aggregateQuality() const {
+        double quality = 1.0;
+        bool hasQuality = false;
+        for (const auto& feature : controller_.state().features) {
+            if (!feature.enabled || !feature.available) continue;
+            quality = std::min(quality, featureQuality(feature.id));
+            hasQuality = true;
+        }
+        return hasQuality ? quality : 0.5;
+    }
+
+    void drawQualityGraph(int x,
+                          int rowBottom,
+                          int width,
+                          int lineHeight,
+                          float alpha) const {
+        const int barY = rowBottom + 2;
+        const int barHeight = std::max(4, lineHeight - 5);
+        drawGraphRect(static_cast<float>(x), static_cast<float>(barY),
+                      static_cast<float>(width), static_cast<float>(barHeight),
+                      0.10f, 0.10f, 0.16f, alpha * 0.9f);
+
+        const float markerWidth = std::max(2.0f, static_cast<float>(lineHeight / 8));
+        const float markerX = static_cast<float>(x) +
+            static_cast<float>(aggregateQuality() * width);
+        const float red = controller_.state().mode == Mode::MaxFPS ? 0.95f : 1.0f;
+        const float green = controller_.state().mode == Mode::MaxFPS ? 0.25f : 1.0f;
+        drawGraphRect(markerX - markerWidth * 0.5f, static_cast<float>(rowBottom),
+                      markerWidth, static_cast<float>(lineHeight - 1),
+                      red, green, 0.95f, alpha);
+    }
+
+    void drawGraph(int x,
+                   int topRowBottom,
+                   int width,
+                   int lineHeight,
+                   float alpha) const {
+        int rowBottom = topRowBottom;
+        const auto& state = controller_.state();
+        if (showUtilisation_ && state.cpuTimeAvailable) {
+            drawUsageGraph(x, rowBottom, width, lineHeight,
+                           graphCPUUsage_, config_.cpuHeadroomPercent, alpha);
+            rowBottom -= lineHeight;
+        }
+        if (showUtilisation_ && state.gpuTimeAvailable) {
+            drawUsageGraph(x, rowBottom, width, lineHeight,
+                           graphGPUUsage_, config_.gpuHeadroomPercent, alpha);
+            rowBottom -= lineHeight;
+        }
+        drawFPSGraph(x, rowBottom, width, lineHeight, alpha);
+        rowBottom -= lineHeight;
+        if (qualityMarkerVisible()) {
+            drawQualityGraph(x, rowBottom, width, lineHeight, alpha);
+        }
+    }
+
+    void invalidateHUDLayout() {
+        hudCompactWidthValid_ = false;
+        hudDetailsWidthValid_ = false;
     }
 
     std::string qualitySummary() const {
@@ -1248,7 +1632,7 @@ private:
     bool isInsideHUD(int localX, int localY, int screenWidth, int screenHeight) const {
         const int boxHeight = 4 * std::max(12, hudLineHeight_) + 8;
         return isInsideHUD(localX, localY, screenWidth, screenHeight,
-                           std::max(190, hudWidth_), boxHeight);
+                           hudBoxWidth(true), boxHeight);
     }
 
     bool isInsideHUD(int localX, int localY, int screenWidth, int screenHeight,
@@ -1270,6 +1654,12 @@ private:
     std::string language_ = "auto";
     std::string displayMode_ = "alw";
     bool showDetailsPreference_ = false;
+    bool showGraph_ = true;
+    bool showUtilisation_ = true;
+    double fpsMeterFrom_ = 15.0;
+    double fpsMeterTo_ = 40.0;
+    double fpsMeterBad_ = 20.0;
+    double fpsMeterGood_ = 30.0;
     double hudAlpha_ = 0.8;
     int hudX_ = 8;
     int hudY_ = -24;
@@ -1286,6 +1676,16 @@ private:
     double hudCPUMilliseconds_ = 0.0;
     double hudGPUMilliseconds_ = 0.0;
     std::array<double, threejfps::kFeatureCount> hudFeatureValues_{};
+    double graphFPSMin_ = 0.0;
+    double graphFPSMax_ = 0.0;
+    double graphCPUUsage_ = 0.0;
+    double graphGPUUsage_ = 0.0;
+    bool graphInitialized_ = false;
+    double stutterHoldSeconds_ = 0.0;
+    mutable bool hudCompactWidthValid_ = false;
+    mutable bool hudDetailsWidthValid_ = false;
+    mutable int hudMeasuredCompactWidth_ = 0;
+    mutable int hudMeasuredDetailsWidth_ = 0;
     bool dragging_ = false;
     bool inputCaptured_ = false;
     int dragOffsetX_ = 0;

@@ -513,6 +513,25 @@ extern "C" int flywithlua_draw_hidpi_text(int x,
     return 1;
 }
 
+extern "C" double flywithlua_measure_hidpi_text(const char* text,
+                                                float logicalSize,
+                                                const char* family,
+                                                int weight) {
+    (void)logicalSize;
+    (void)weight;
+    if (text == nullptr) {
+        return -1.0;
+    }
+
+    const std::string value(text);
+    const size_t maximumLength = static_cast<size_t>(std::numeric_limits<int>::max());
+    const int length = static_cast<int>(std::min(value.size(), maximumLength));
+    return static_cast<double>(XPLMMeasureString(
+        fontIDForHiDPIFamily(family),
+        value.c_str(),
+        length));
+}
+
 // These callbacks update the SwiftUI state in the XcodeGen build. CMake has
 // no SwiftUI surface, so keeping them as no-ops preserves the ABI without
 // making the native runtime depend on a UI implementation.

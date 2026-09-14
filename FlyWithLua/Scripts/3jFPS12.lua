@@ -815,6 +815,12 @@ jjjFPS_nativeConfig = function()
 		shadowKillExternalDegrees = jjjFPS_param("ShKextDg"),
 		displayMode = jjjFPS_param("disM"),
 		showDetails = jjjFPS_param("disD") == true,
+		showGraph = jjjFPS_param("disG") == true,
+		showUtilisation = jjjFPS_param("disU") == true,
+		fpsMeterFrom = jjjFPS_param("MTfr"),
+		fpsMeterTo = jjjFPS_param("MTto"),
+		fpsMeterBad = jjjFPS_param("MTbd"),
+		fpsMeterGood = jjjFPS_param("MTgd"),
 		hudAlpha = jjjFPS_param("disA"),
 		hudX = jjjFPS_dispX,
 		hudY = jjjFPS_dispY,
@@ -897,6 +903,9 @@ function jjjFPS_nativeApplyCommand(kind, key, value)
 		jjjFPS_setProfile(key)
 	elseif kind == "param" then
 		jjjFPS_setParam(key, value)
+	elseif kind == "graph" then
+		local enabled = key == true or key == "true" or key == 1
+		jjjFPS_setParam("disG", enabled)
 	elseif kind == "language" then
 		jjjFPS_setParam("lang", key)
 	elseif kind == "save" then

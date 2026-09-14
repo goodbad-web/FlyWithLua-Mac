@@ -358,6 +358,8 @@ private struct ThreeJFPSHUDCard: View {
                 Toggle("", isOn: editingBinding)
                     .labelsHidden()
             }
+            Toggle(threeJFPSLocalized("Show graphic meter", "グラフを表示", state: state),
+                   isOn: graphBinding)
             Text(state.snapshot.hudEditing ?
                  threeJFPSLocalized("Drag the HUD to move it; scroll to resize. Turn this off to return to normal click-to-open behavior.", "HUDをドラッグして移動、スクロールでサイズ変更します。通常クリックで設定を開くにはオフに戻します。", state: state) :
                  threeJFPSLocalized("Normal click opens this settings window. Moving and resizing require edit mode.", "通常クリックで設定画面を開きます。移動・リサイズには編集モードが必要です。", state: state))
@@ -372,6 +374,10 @@ private struct ThreeJFPSHUDCard: View {
 
     private var editingBinding: Binding<Bool> {
         Binding(get: { state.snapshot.hudEditing }, set: { state.setHUDEditing($0) })
+    }
+
+    private var graphBinding: Binding<Bool> {
+        Binding(get: { state.snapshot.showGraph }, set: { state.setShowGraph($0) })
     }
 }
 

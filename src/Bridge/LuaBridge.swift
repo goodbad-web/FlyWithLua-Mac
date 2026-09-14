@@ -74,6 +74,29 @@ public func flywithlua_draw_hidpi_text(_ x: Int32,
     return rendered ? 1 : 0
 }
 
+@_cdecl("flywithlua_measure_hidpi_text")
+public func flywithlua_measure_hidpi_text(_ text: UnsafePointer<CChar>?,
+                                          _ logicalSize: Float,
+                                          _ family: UnsafePointer<CChar>?,
+                                          _ weight: Int32) -> Double {
+    guard let text,
+          logicalSize.isFinite,
+          logicalSize > 0 else {
+        return -1
+    }
+
+    let familyName = family.map { String(cString: $0) } ?? "sf_pro_text"
+    guard let width = HUDTextRenderer.shared.measure(
+        text: String(cString: text),
+        logicalSize: CGFloat(logicalSize),
+        family: familyName,
+        weight: Int(weight)
+    ) else {
+        return -1
+    }
+    return Double(width)
+}
+
 @_cdecl("flywithlua_update_3jfps_snapshot")
 public func flywithlua_update_3jfps_snapshot(_ jsonPayload: UnsafePointer<CChar>?) {
     guard let jsonPayload else { return }

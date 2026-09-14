@@ -36,8 +36,49 @@ public struct ThreeJFPSSnapshot: Codable, Equatable {
     public var language: String = "auto"
     public var resolvedLanguage: String = "en"
     public var hudEditing: Bool = false
+    public var showGraph: Bool = true
+    public var showUtilisation: Bool = true
     public var dataRefAvailability: [String: Bool] = [:]
     public var features: [ThreeJFPSFeatureSnapshot] = []
+
+    public init() {}
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, mode, profile, fps, targetFPS, cpuMs, gpuMs
+        case cpuHeadroom, gpuHeadroom, detectionWindow, changeInterval, recoveryDelay
+        case limiter, controllerReason, cpuDataRefAvailable, gpuDataRefAvailable
+        case dirty, language, resolvedLanguage, hudEditing, showGraph, showUtilisation
+        case dataRefAvailability, features
+    }
+
+    public init(from decoder: Decoder) throws {
+        self.init()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? schemaVersion
+        mode = try container.decodeIfPresent(String.self, forKey: .mode) ?? mode
+        profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? profile
+        fps = try container.decodeIfPresent(Double.self, forKey: .fps) ?? fps
+        targetFPS = try container.decodeIfPresent(Double.self, forKey: .targetFPS) ?? targetFPS
+        cpuMs = try container.decodeIfPresent(Double.self, forKey: .cpuMs) ?? cpuMs
+        gpuMs = try container.decodeIfPresent(Double.self, forKey: .gpuMs) ?? gpuMs
+        cpuHeadroom = try container.decodeIfPresent(Double.self, forKey: .cpuHeadroom) ?? cpuHeadroom
+        gpuHeadroom = try container.decodeIfPresent(Double.self, forKey: .gpuHeadroom) ?? gpuHeadroom
+        detectionWindow = try container.decodeIfPresent(Double.self, forKey: .detectionWindow) ?? detectionWindow
+        changeInterval = try container.decodeIfPresent(Double.self, forKey: .changeInterval) ?? changeInterval
+        recoveryDelay = try container.decodeIfPresent(Double.self, forKey: .recoveryDelay) ?? recoveryDelay
+        limiter = try container.decodeIfPresent(String.self, forKey: .limiter) ?? limiter
+        controllerReason = try container.decodeIfPresent(String.self, forKey: .controllerReason) ?? controllerReason
+        cpuDataRefAvailable = try container.decodeIfPresent(Bool.self, forKey: .cpuDataRefAvailable) ?? cpuDataRefAvailable
+        gpuDataRefAvailable = try container.decodeIfPresent(Bool.self, forKey: .gpuDataRefAvailable) ?? gpuDataRefAvailable
+        dirty = try container.decodeIfPresent(Bool.self, forKey: .dirty) ?? dirty
+        language = try container.decodeIfPresent(String.self, forKey: .language) ?? language
+        resolvedLanguage = try container.decodeIfPresent(String.self, forKey: .resolvedLanguage) ?? resolvedLanguage
+        hudEditing = try container.decodeIfPresent(Bool.self, forKey: .hudEditing) ?? hudEditing
+        showGraph = try container.decodeIfPresent(Bool.self, forKey: .showGraph) ?? showGraph
+        showUtilisation = try container.decodeIfPresent(Bool.self, forKey: .showUtilisation) ?? showUtilisation
+        dataRefAvailability = try container.decodeIfPresent([String: Bool].self, forKey: .dataRefAvailability) ?? dataRefAvailability
+        features = try container.decodeIfPresent([ThreeJFPSFeatureSnapshot].self, forKey: .features) ?? features
+    }
 }
 
 /// Semantic state shared by the native 3jFPS12 runtime and SwiftUI.
@@ -92,6 +133,10 @@ public final class ThreeJFPSUIState: ObservableObject {
 
     public func setHUDEditing(_ enabled: Bool) {
         send(["type": "setHUDEditing", "value": enabled])
+    }
+
+    public func setShowGraph(_ enabled: Bool) {
+        send(["type": "setGraph", "value": enabled])
     }
 
     public func setFeatureOverride(_ id: String, value: Double) {
