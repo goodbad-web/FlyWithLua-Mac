@@ -62,6 +62,10 @@ public final class HUDTextRenderer {
         let textureID: Int32
     }
 
+    private struct TextureMatrixState {
+        let previousMatrixMode: GLenum
+    }
+
     private let rasterScale: CGFloat = 2.0
     private let maximumLogicalFontSize: CGFloat = 256.0
     private let maximumAtlases = 8
@@ -191,6 +195,26 @@ public final class HUDTextRenderer {
         // unit after updating that cached binding.
         bindTextureOnUnitZero(state.textureID)
         glActiveTexture(state.activeTexture)
+    }
+
+    private func pushIdentityTextureMatrix() -> TextureMatrixState {
+        var previousMatrixMode: GLint = GLint(GL_MODELVIEW)
+        glGetIntegerv(GLenum(GL_MATRIX_MODE), &previousMatrixMode)
+
+        // X-Plane and other plug-ins share the fixed-function matrix stacks.
+        // glPushAttrib does not save matrix contents, so an inherited texture
+        // matrix can mirror/rotate every glyph while the screen-space quad
+        // itself still looks correct.
+        glMatrixMode(GLenum(GL_TEXTURE))
+        glPushMatrix()
+        glLoadIdentity()
+        return TextureMatrixState(previousMatrixMode: GLenum(previousMatrixMode))
+    }
+
+    private func popTextureMatrix(_ state: TextureMatrixState) {
+        glMatrixMode(GLenum(GL_TEXTURE))
+        glPopMatrix()
+        glMatrixMode(state.previousMatrixMode)
     }
 
     private func createTexture(for atlas: Atlas) -> Bool {
@@ -407,6 +431,7 @@ public final class HUDTextRenderer {
         glColor4f(currentColor[0], currentColor[1], currentColor[2], currentColor[3])
         glTexEnvi(GLenum(GL_TEXTURE_ENV), GLenum(GL_TEXTURE_ENV_MODE), GLint(GL_MODULATE))
         bindTextureOnUnitZero(firstAtlas.textureID)
+        let textureMatrixState = pushIdentityTextureMatrix()
 
         glBegin(GLenum(GL_QUADS))
         for (preparedGlyph, penX) in prepared {
@@ -420,17 +445,21 @@ public final class HUDTextRenderer {
             let u1 = Float(record.textureX + record.textureWidth) / Float(Atlas.width)
             let v1 = Float(record.textureY + record.textureHeight) / Float(Atlas.height)
 
-            glTexCoord2f(u0, v0)
-            glVertex2f(GLfloat(left), GLfloat(bottom))
-            glTexCoord2f(u1, v0)
-            glVertex2f(GLfloat(right), GLfloat(bottom))
-            glTexCoord2f(u1, v1)
-            glVertex2f(GLfloat(right), GLfloat(top))
+            // CoreGraphics bitmap contexts expose the first byte row at the
+            // top of the glyph, whereas OpenGL's v=0 samples the lower edge.
+            // Keep U unchanged and swap only V so the glyph is upright.
             glTexCoord2f(u0, v1)
+            glVertex2f(GLfloat(left), GLfloat(bottom))
+            glTexCoord2f(u1, v1)
+            glVertex2f(GLfloat(right), GLfloat(bottom))
+            glTexCoord2f(u1, v0)
+            glVertex2f(GLfloat(right), GLfloat(top))
+            glTexCoord2f(u0, v0)
             glVertex2f(GLfloat(left), GLfloat(top))
         }
         glEnd()
         let drawError = glGetError()
+        popTextureMatrix(textureMatrixState)
         glPopAttrib()
         restoreTextureState(previousTextureState)
         XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0)
