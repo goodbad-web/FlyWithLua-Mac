@@ -67,6 +67,35 @@ struct NumericDataRef {
     bool originalCaptured = false;
 };
 
+class HUDPrimitiveStateGuard {
+public:
+    HUDPrimitiveStateGuard() {
+        // X-Plane and plug-ins share the fixed-function OpenGL state.  The
+        // SDK helper does not manage face culling or scissoring, so an
+        // inherited state can make otherwise valid screen-space quads
+        // disappear (especially on the OpenGL/Metal bridge).
+        glPushAttrib(GLbitfield(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT |
+                                GL_CURRENT_BIT | GL_SCISSOR_BIT));
+        XPLMSetGraphicsState(0, 0, 0, 0, 1, 0, 0);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_SCISSOR_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+
+    ~HUDPrimitiveStateGuard() {
+        glPopAttrib();
+
+        // Keep X-Plane's cached state consistent with the state that the HUD
+        // historically left for the next drawing path.  The attribute stack
+        // restores unmanaged state such as culling and scissoring above.
+        XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
+    }
+
+    HUDPrimitiveStateGuard(const HUDPrimitiveStateGuard&) = delete;
+    HUDPrimitiveStateGuard& operator=(const HUDPrimitiveStateGuard&) = delete;
+};
+
 bool readBoolField(lua_State* state, int tableIndex, const char* name, bool fallback) {
     lua_getfield(state, tableIndex, name);
     const bool value = lua_isboolean(state, -1) ? lua_toboolean(state, -1) != 0 : fallback;
@@ -438,13 +467,16 @@ public:
             indicatorColor[2] = 0.60f;
         }
 
-        glColor4f(indicatorColor[0], indicatorColor[1], indicatorColor[2], alpha);
-        glBegin(GL_QUADS);
-        glVertex2f(static_cast<float>(x), static_cast<float>(y));
-        glVertex2f(static_cast<float>(x + 4), static_cast<float>(y));
-        glVertex2f(static_cast<float>(x + 4), static_cast<float>(y + boxHeight));
-        glVertex2f(static_cast<float>(x), static_cast<float>(y + boxHeight));
-        glEnd();
+        {
+            HUDPrimitiveStateGuard primitiveState;
+            glColor4f(indicatorColor[0], indicatorColor[1], indicatorColor[2], alpha);
+            glBegin(GL_QUADS);
+            glVertex2f(static_cast<float>(x), static_cast<float>(y));
+            glVertex2f(static_cast<float>(x + 4), static_cast<float>(y));
+            glVertex2f(static_cast<float>(x + 4), static_cast<float>(y + boxHeight));
+            glVertex2f(static_cast<float>(x), static_cast<float>(y + boxHeight));
+            glEnd();
+        }
 
         const float textColor[3] = {1.0f, 1.0f, 1.0f};
         const int textX = x + 12;
@@ -462,8 +494,8 @@ public:
         }
 
         if (showGraph_) {
-            XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
             const int graphX = textX + hudTextColumnWidth(showDetails) + kHUDGraphGap;
+            HUDPrimitiveStateGuard primitiveState;
             drawGraph(graphX, topY, hudGraphWidth(), lineHeight, alpha);
         }
 
