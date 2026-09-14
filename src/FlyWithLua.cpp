@@ -88,13 +88,14 @@ struct FlyWithLuaPositiveEdgeFlip {
     double onDouble = 1.0;
     bool lastPressed = false;
 };
-struct LuaCallbackEntry {
+struct LuaCallbackEntries {
     std::string source;
     int chunkRef = LUA_NOREF;
     bool disabled = false;
     bool errorReported = false;
+
+    bool empty() const { return source.empty(); }
 };
-using LuaCallbackEntries = std::vector<LuaCallbackEntry>;
 
 static std::vector<FlyWithLuaPositiveEdgeFlip> gPositiveEdgeFlips;
 static std::vector<int> gJoystickButtonValues;
@@ -909,32 +910,32 @@ static void RunLuaStringChunk(const std::string& code, const char* context) {
     }
 }
 
-static void DisableLuaCallback(LuaCallbackEntry& callback, const char* context, size_t index,
-                               const std::string& errorMessage) {
-    callback.disabled = true;
-    if (callback.errorReported) {
+static void DisableLuaCallbackGroup(LuaCallbackEntries& callbacks, const char* context,
+                                    const std::string& errorMessage) {
+    callbacks.disabled = true;
+    if (callbacks.errorReported) {
         return;
     }
 
-    callback.errorReported = true;
-    const std::string message = "FlyWithLua-Mac Lua Error (" + std::string(context) + " callback " +
-                                std::to_string(index + 1) + "): " + errorMessage +
-                                "; callback disabled\n";
+    callbacks.errorReported = true;
+    const std::string message = "FlyWithLua-Mac Lua Error (" + std::string(context) +
+                                " callback group): " + errorMessage +
+                                "; callback group disabled\n";
     XPLMDebugString(message.c_str());
 }
 
-static bool CompileLuaCallback(LuaCallbackEntry& callback, const char* context, size_t index) {
+static bool CompileLuaCallbackGroup(LuaCallbackEntries& callbacks, const char* context) {
     std::string source;
-    source.reserve(callback.source.size() + 32);
+    source.reserve(callbacks.source.size() + 32);
     source.append("return function()\n");
-    source.append(callback.source);
+    source.append(callbacks.source);
     source.append("\nend");
 
     if (luaL_loadbuffer(L, source.c_str(), source.size(), context) != 0) {
         const char* luaError = lua_tostring(L, -1);
         const std::string errorMessage = luaError ? luaError : "unknown Lua error";
         lua_pop(L, 1);
-        DisableLuaCallback(callback, context, index, errorMessage);
+        DisableLuaCallbackGroup(callbacks, context, errorMessage);
         return false;
     }
 
@@ -942,30 +943,28 @@ static bool CompileLuaCallback(LuaCallbackEntry& callback, const char* context, 
         const char* luaError = lua_tostring(L, -1);
         const std::string errorMessage = luaError ? luaError : "unknown Lua error";
         lua_pop(L, 1);
-        DisableLuaCallback(callback, context, index, errorMessage);
+        DisableLuaCallbackGroup(callbacks, context, errorMessage);
         return false;
     }
 
     if (!lua_isfunction(L, -1)) {
         lua_pop(L, 1);
-        DisableLuaCallback(callback, context, index, "callback did not compile to a function");
+        DisableLuaCallbackGroup(callbacks, context, "callback group did not compile to a function");
         return false;
     }
 
-    callback.chunkRef = luaL_ref(L, LUA_REGISTRYINDEX);
+    callbacks.chunkRef = luaL_ref(L, LUA_REGISTRYINDEX);
     return true;
 }
 
 static void InvalidateLuaCallbackEntries(LuaCallbackEntries& callbacks) {
-    if (L) {
-        for (LuaCallbackEntry& callback : callbacks) {
-            if (callback.chunkRef != LUA_NOREF) {
-                luaL_unref(L, LUA_REGISTRYINDEX, callback.chunkRef);
-                callback.chunkRef = LUA_NOREF;
-            }
-        }
+    if (L && callbacks.chunkRef != LUA_NOREF) {
+        luaL_unref(L, LUA_REGISTRYINDEX, callbacks.chunkRef);
     }
-    callbacks.clear();
+    callbacks.source.clear();
+    callbacks.chunkRef = LUA_NOREF;
+    callbacks.disabled = false;
+    callbacks.errorReported = false;
 }
 
 static void InvalidateAllLuaCallbackChunks() {
@@ -983,23 +982,23 @@ static void RunLuaCallbackEntries(LuaCallbackEntries& callbacks, const char* con
         return;
     }
 
-    for (size_t index = 0; index < callbacks.size(); ++index) {
-        LuaCallbackEntry& callback = callbacks[index];
-        if (callback.disabled) {
-            continue;
-        }
+    if (callbacks.disabled) {
+        return;
+    }
 
-        if (callback.chunkRef == LUA_NOREF && !CompileLuaCallback(callback, context, index)) {
-            continue;
-        }
+    // FlyWithLua defines one lexical block per callback kind. Keep all
+    // registrations in one closure so locals remain visible in registration
+    // order, including registrations originating from different scripts.
+    if (callbacks.chunkRef == LUA_NOREF && !CompileLuaCallbackGroup(callbacks, context)) {
+        return;
+    }
 
-        lua_rawgeti(L, LUA_REGISTRYINDEX, callback.chunkRef);
-        if (lua_pcall(L, 0, 0, 0) != 0) {
-            const char* luaError = lua_tostring(L, -1);
-            const std::string errorMessage = luaError ? luaError : "unknown Lua error";
-            lua_pop(L, 1);
-            DisableLuaCallback(callback, context, index, errorMessage);
-        }
+    lua_rawgeti(L, LUA_REGISTRYINDEX, callbacks.chunkRef);
+    if (lua_pcall(L, 0, 0, 0) != 0) {
+        const char* luaError = lua_tostring(L, -1);
+        const std::string errorMessage = luaError ? luaError : "unknown Lua error";
+        lua_pop(L, 1);
+        DisableLuaCallbackGroup(callbacks, context, errorMessage);
     }
 }
 
@@ -1014,17 +1013,18 @@ static bool AppendLuaCallback(lua_State* state, std::string& debugCode, LuaCallb
     }
 
     debugCode.append(code).append("\n");
-    callbacks.push_back({code, LUA_NOREF, false, false});
+    callbacks.source.append(code).append("\n");
+    if (L && callbacks.chunkRef != LUA_NOREF) {
+        luaL_unref(L, LUA_REGISTRYINDEX, callbacks.chunkRef);
+        callbacks.chunkRef = LUA_NOREF;
+    }
+    callbacks.disabled = false;
+    callbacks.errorReported = false;
     return true;
 }
 
 static bool HasEnabledLuaCallbacks(const LuaCallbackEntries& callbacks) {
-    for (const LuaCallbackEntry& callback : callbacks) {
-        if (!callback.disabled) {
-            return true;
-        }
-    }
-    return false;
+    return !callbacks.empty() && !callbacks.disabled;
 }
 
 static bool AdvanceLuaTimer(float& accumulator, float elapsedSeconds, float intervalSeconds) {

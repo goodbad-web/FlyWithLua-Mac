@@ -49,32 +49,6 @@ struct NumericDataRef {
     bool originalCaptured = false;
 };
 
-struct LuaConfigValues {
-    bool hasRestoreLOD = false;
-    bool hasRestoreCloudSteps = false;
-    bool hasRestoreCloudStart = false;
-    bool hasRestoreShadowInterior = false;
-    bool hasRestoreShadowExterior = false;
-    bool hasRestoreShadowBillboards = false;
-    bool hasRestoreFSROn = false;
-    bool hasRestoreFSRQuality = false;
-    double restoreLOD = 0.0;
-    double restoreCloudSteps = 0.0;
-    double restoreCloudStart = 0.0;
-    double restoreShadowInterior = 0.0;
-    double restoreShadowExterior = 0.0;
-    double restoreShadowBillboards = 0.0;
-    double restoreFSROn = 0.0;
-    double restoreFSRQuality = 0.0;
-};
-
-bool hasField(lua_State* state, int tableIndex, const char* name) {
-    lua_getfield(state, tableIndex, name);
-    const bool present = !lua_isnil(state, -1);
-    lua_pop(state, 1);
-    return present;
-}
-
 bool readBoolField(lua_State* state, int tableIndex, const char* name, bool fallback) {
     lua_getfield(state, tableIndex, name);
     const bool value = lua_isboolean(state, -1) ? lua_toboolean(state, -1) != 0 : fallback;
@@ -98,14 +72,6 @@ std::string readStringField(lua_State* state, int tableIndex, const char* name,
     std::string result = value != nullptr ? std::string(value, length) : fallback;
     lua_pop(state, 1);
     return result;
-}
-
-void readOptionalRestore(lua_State* state, int tableIndex, const char* name,
-                         bool& present, double& value) {
-    present = hasField(state, tableIndex, name);
-    if (present) {
-        value = readNumberField(state, tableIndex, name, value);
-    }
 }
 
 FeatureConfig readFeature(lua_State* state, int tableIndex, FeatureId id,
@@ -303,6 +269,7 @@ public:
 
     void unregisterFromLua() {
         restoreAllDataRefs();
+        resetOriginalDataRefCapture();
         active_ = false;
         luaState_ = nullptr;
         {
@@ -645,26 +612,8 @@ private:
             hudPositionIsAbsolute_ = readBoolField(state, tableIndex, "hudPositionAbsolute", false);
         }
 
-        LuaConfigValues restore;
-        readOptionalRestore(state, tableIndex, "restoreLOD", restore.hasRestoreLOD, restore.restoreLOD);
-        readOptionalRestore(state, tableIndex, "restoreCloudSteps", restore.hasRestoreCloudSteps, restore.restoreCloudSteps);
-        readOptionalRestore(state, tableIndex, "restoreCloudStart", restore.hasRestoreCloudStart, restore.restoreCloudStart);
-        readOptionalRestore(state, tableIndex, "restoreShadowInterior", restore.hasRestoreShadowInterior, restore.restoreShadowInterior);
-        readOptionalRestore(state, tableIndex, "restoreShadowExterior", restore.hasRestoreShadowExterior, restore.restoreShadowExterior);
-        readOptionalRestore(state, tableIndex, "restoreShadowBillboards", restore.hasRestoreShadowBillboards, restore.restoreShadowBillboards);
-        readOptionalRestore(state, tableIndex, "restoreFSROn", restore.hasRestoreFSROn, restore.restoreFSROn);
-        readOptionalRestore(state, tableIndex, "restoreFSRQuality", restore.hasRestoreFSRQuality, restore.restoreFSRQuality);
-
         if (firstRegistration) {
             bindDataRefs();
-            applyConfiguredOriginal(lodBias_, restore.hasRestoreLOD, restore.restoreLOD);
-            applyConfiguredOriginal(cloudSegmentSteps_, restore.hasRestoreCloudSteps, restore.restoreCloudSteps);
-            applyConfiguredOriginal(cloudStepStart_, restore.hasRestoreCloudStart, restore.restoreCloudStart);
-            applyConfiguredOriginal(shadowInterior_, restore.hasRestoreShadowInterior, restore.restoreShadowInterior);
-            applyConfiguredOriginal(shadowExterior_, restore.hasRestoreShadowExterior, restore.restoreShadowExterior);
-            applyConfiguredOriginal(shadowBillboards_, restore.hasRestoreShadowBillboards, restore.restoreShadowBillboards);
-            applyConfiguredOriginal(fsrEnabled_, restore.hasRestoreFSROn, restore.restoreFSROn);
-            applyConfiguredOriginal(fsrQuality_, restore.hasRestoreFSRQuality, restore.restoreFSRQuality);
             swapTimeInitialized_ = false;
         } else {
             bindDataRefs();
@@ -729,15 +678,10 @@ private:
         if (target.ref == nullptr) {
             target.ref = XPLMFindDataRef(name);
         }
+        // X-Plane is the source of truth for restoration. Lua may still hold
+        // fallback values when a private DataRef was unavailable at startup.
         if (target.ref != nullptr && !target.originalCaptured) {
             target.originalValue = readDataRef(target);
-            target.originalCaptured = true;
-        }
-    }
-
-    static void applyConfiguredOriginal(NumericDataRef& target, bool present, double value) {
-        if (present && target.ref != nullptr) {
-            target.originalValue = value;
             target.originalCaptured = true;
         }
     }
@@ -771,6 +715,41 @@ private:
         restoreDataRef(fsrEnabled_);
         restoreDataRef(fsrQuality_);
         clearAppliedCache();
+    }
+
+    void resetOriginalDataRefCapture() {
+        gpuTime_.originalValue = 0.0;
+        gpuTime_.originalCaptured = false;
+        swapTimeTotal_.originalValue = 0.0;
+        swapTimeTotal_.originalCaptured = false;
+        lodBias_.originalValue = 0.0;
+        lodBias_.originalCaptured = false;
+        cloudSegmentSteps_.originalValue = 0.0;
+        cloudSegmentSteps_.originalCaptured = false;
+        cloudStepStart_.originalValue = 0.0;
+        cloudStepStart_.originalCaptured = false;
+        shadowInterior_.originalValue = 0.0;
+        shadowInterior_.originalCaptured = false;
+        shadowExterior_.originalValue = 0.0;
+        shadowExterior_.originalCaptured = false;
+        shadowBillboards_.originalValue = 0.0;
+        shadowBillboards_.originalCaptured = false;
+        shadowPreparationDisabled_.originalValue = 0.0;
+        shadowPreparationDisabled_.originalCaptured = false;
+        sunPitch_.originalValue = 0.0;
+        sunPitch_.originalCaptured = false;
+        viewExternal_.originalValue = 0.0;
+        viewExternal_.originalCaptured = false;
+        aircraftY_.originalValue = 0.0;
+        aircraftY_.originalCaptured = false;
+        aircraftAGL_.originalValue = 0.0;
+        aircraftAGL_.originalCaptured = false;
+        viewY_.originalValue = 0.0;
+        viewY_.originalCaptured = false;
+        fsrEnabled_.originalValue = 0.0;
+        fsrEnabled_.originalCaptured = false;
+        fsrQuality_.originalValue = 0.0;
+        fsrQuality_.originalCaptured = false;
     }
 
     void restoreFeaturesNoLongerControlled(const ControllerConfig& oldConfig,

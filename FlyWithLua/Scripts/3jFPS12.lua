@@ -781,6 +781,8 @@ end
 -- The native bridge receives semantic settings instead of reaching into
 -- jjjLib1's private tables. This keeps the old global/global-profile files
 -- and public Lua commands intact while moving the per-frame work to C++.
+-- Restoration baselines are captured from X-Plane by the native runtime; do
+-- not pass legacy fallback values through this configuration table.
 jjjFPS_nativeConfig = function()
 	return {
 		mode = jjjFPS_autoMode,
@@ -819,15 +821,7 @@ jjjFPS_nativeConfig = function()
 		hudWidth = jjjFPS_param("MTwd"),
 		hudLineHeight = jjjFPS_param("MTht"),
 		hudPositionAbsolute = jjjFPS_dispX > 0 and jjjFPS_dispY > 0,
-		language = jjjFPS_param("lang") or "auto",
-		restoreLOD = jjjFPS_DR_lodBiasOrig,
-		restoreCloudSteps = jjjFPS_DR_cloudsSegStepsOrig,
-		restoreCloudStart = jjjFPS_DR_cloudsStepStartOrig,
-		restoreShadowInterior = jjjFPS_DR_shdLimitIntOrig,
-		restoreShadowExterior = jjjFPS_DR_shdLimitExtOrig,
-		restoreShadowBillboards = jjjFPS_DR_shdBillboardsOrig,
-		restoreFSROn = jjjFPS_DR_FSRonOrig,
-		restoreFSRQuality = jjjFPS_DR_FSRqOrig
+		language = jjjFPS_param("lang") or "auto"
 	}
 end
 
