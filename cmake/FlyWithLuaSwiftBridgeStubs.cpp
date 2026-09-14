@@ -437,8 +437,13 @@ static void registerBridgeFunction(lua_State* state,
 // making the native runtime depend on a UI implementation.
 extern "C" void flywithlua_toggle_window(void) {}
 extern "C" void flywithlua_update_current_altitude(double) {}
+extern "C" void flywithlua_update_script_count(int) {}
+extern "C" void flywithlua_clear_script_load_failures(void) {}
+extern "C" void flywithlua_update_script_load_results(const char*) {}
 extern "C" void flywithlua_update_script_load_summary(int, int, int, const char*) {}
 extern "C" void flywithlua_update_last_log_message(const char*) {}
+extern "C" void flywithlua_update_3jfps_snapshot(const char*) {}
+extern "C" void flywithlua_show_3jfps_settings(void) {}
 
 extern "C" void register_swift_bridge(lua_State* state) {
     if (state == nullptr) {

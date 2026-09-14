@@ -9,20 +9,32 @@ struct MainView: View {
     @ObservedObject var state = XPUIState.shared
     
     var body: some View {
-        VStack(spacing: 20) {
-            HeaderView()
-            
-            StatusCard()
-            
-            LogView()
+        TabView(selection: $state.selectedTab) {
+            VStack(spacing: 20) {
+                HeaderView()
 
-            ScriptFailureView()
-            
-            Spacer()
-            
-            FooterView()
+                StatusCard()
+
+                LogView()
+
+                ScriptFailureView()
+
+                Spacer()
+
+                FooterView()
+            }
+            .padding()
+            .tabItem {
+                Label(flyWithLuaLocalized("FlyWithLua", "FlyWithLua"), systemImage: "airplane")
+            }
+            .tag(0)
+
+            ThreeJFPSSettingsView()
+                .tabItem {
+                    Label("3jFPS12", systemImage: "speedometer")
+                }
+                .tag(1)
         }
-        .padding()
         .frame(minWidth: 400, minHeight: 500)
         .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow).ignoresSafeArea())
     }

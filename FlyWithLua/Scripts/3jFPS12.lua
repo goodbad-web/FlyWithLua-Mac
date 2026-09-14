@@ -48,6 +48,7 @@ jjjLib1.addParam(jjjFPS_plId, "profile", {["save"]="global", ["autosave"]=true, 
 jjjLib1.addParam(jjjFPS_plId, "profNVR", {["save"]="global", ["autosave"]=true, ["dflt"]="A"}, "")
 jjjLib1.addParam(jjjFPS_plId, "profVR",  {["save"]="global", ["autosave"]=true, ["dflt"]="D"}, "")
 jjjLib1.addParam(jjjFPS_plId, "mode",    {["save"]="global", ["autosave"]=true, ["dflt"]="on"}, "")
+jjjLib1.addParam(jjjFPS_plId, "lang",    {["save"]="global", ["autosave"]=false, ["dflt"]="auto"}, "")
 
 
 jjjLib1.addParam(jjjFPS_plId, "disL", {["save"]="global-profile", ["autosave"]=true, ["dflt"]=false, ["info"]="display: show labels"}, "")
@@ -123,11 +124,19 @@ jjjLib1.addParam(jjjFPS_plId, "disBgA", {["save"]="global-profile", ["dflt"]=0.1
 jjjLib1.addParam(jjjFPS_plId, "disX", {["save"]="global-profile", ["dflt"]=8*(jjjFPS_UHD + 1), ["mn"]=1, ["mx"]=300, ["stp"]=1, ["slMn"]=1, ["slMx"]=300, ["fmt"]="%3i"}, "")
 jjjLib1.addParam(jjjFPS_plId, "disY", {["save"]="global-profile", ["dflt"]=-24*(jjjFPS_UHD + 1), ["mn"]=1, ["mx"]=300, ["stp"]=1, ["slMn"]=1, ["slMx"]=300, ["fmt"]="%3i"}, "")
 
+local jjjFPS_nativeEnabled  = false
+local jjjFPS_nativeEditing  = false
+local jjjFPS_nativeConfig   = function() return {} end
+local jjjFPS_nativeSync     = function() end
+
 function jjjFPS_param(param)
 	return jjjLib1.getParam(jjjFPS_plId, param)
 end
 function jjjFPS_setParam(param, value)
 	jjjLib1.setParam(jjjFPS_plId, param, value)
+	if jjjFPS_nativeEnabled then
+		jjjFPS_nativeSync()
+	end
 end
 function jjjFPS_loadParams()
 	local ok = jjjLib1.loadParams(jjjFPS_plId)
@@ -165,10 +174,12 @@ local jjjFPS_useAutoFSR = false     -- autom. change FSR
 local jjjFPS_configUseProcTimes = jjjFPS_useProcTimes
 local jjjFPS_configUseAutoLod   = jjjFPS_useAutoLod
 local jjjFPS_configUseAutoAGL   = jjjFPS_useAutoAGL
-local jjjFPS_configUseAutoCLD   = jjjFPS_useAutoCLD
+-- Native X-Plane 12 builds probe these DataRefs directly. Keep the legacy
+-- fallback switches unchanged until its retry path confirms availability.
+local jjjFPS_configUseAutoCLD   = true
 local jjjFPS_configUseAutoShD   = jjjFPS_useAutoShD
 local jjjFPS_configUseAutoShK   = jjjFPS_useAutoShK
-local jjjFPS_configUseAutoFSR   = jjjFPS_useAutoFSR
+local jjjFPS_configUseAutoFSR   = true
 
 local jjjFPS_dispAlpha = 0.8        -- opacity of display (0.0: invisble, 1.0: fully opaque)
 local jjjFPS_dispX     = 12         -- horizontal position in pixels
@@ -541,6 +552,9 @@ function jjjFPS_retryDataRefs()
 	if recovered then
 		jjjFPS_calcMeter()
 		jjjFPS_setAutoShDOnOff()
+		if jjjFPS_nativeEnabled then
+			jjjFPS_nativeSync()
+		end
 	end
 
 	if #missing == 0 then
@@ -764,6 +778,65 @@ function jjjFPS_setOrigDatarefs()
 	end
 end
 
+-- The native bridge receives semantic settings instead of reaching into
+-- jjjLib1's private tables. This keeps the old global/global-profile files
+-- and public Lua commands intact while moving the per-frame work to C++.
+jjjFPS_nativeConfig = function()
+	return {
+		mode = jjjFPS_autoMode,
+		profile = jjjFPS_profile,
+		targetFPS = jjjFPS_param("Ftg"),
+		cpuHeadroom = jjjFPS_param("CPUhdrm"),
+		gpuHeadroom = jjjFPS_param("GPUhdrm"),
+		cpuTimeRequested = jjjFPS_configUseProcTimes,
+		gpuTimeRequested = jjjFPS_configUseProcTimes,
+		lodEnabled = jjjFPS_param("LDa") == true,
+		lodAvailable = jjjFPS_configUseAutoLod,
+		lodLow = jjjFPS_param("LDmn"),
+		lodHigh = jjjFPS_param("LDmx"),
+		shadowEnabled = jjjFPS_param("ShDa") == true,
+		shadowAvailable = jjjFPS_configUseAutoShD,
+		shadowLow = jjjFPS_param("ShDmn"),
+		shadowHigh = jjjFPS_param("ShDmx"),
+		cloudEnabled = jjjFPS_param("CLDa") == true,
+		cloudAvailable = jjjFPS_configUseAutoCLD,
+		cloudLow = jjjFPS_param("CLDmn"),
+		cloudHigh = jjjFPS_param("CLDmx"),
+		fsrEnabled = jjjFPS_param("FSRa") == true,
+		fsrAvailable = jjjFPS_configUseAutoFSR,
+		fsrLow = jjjFPS_param("FSRmn"),
+		fsrHigh = jjjFPS_param("FSRmx"),
+		aglEnabled = jjjFPS_useAutoAGL and jjjFPS_param("AGLa") == true,
+		aglHeight = jjjFPS_param("AGLh"),
+		shadowKillEnabled = jjjFPS_useAutoShK and jjjFPS_param("ShKa") == true,
+		shadowKillInteriorDegrees = jjjFPS_param("ShKintDg"),
+		shadowKillExternalDegrees = jjjFPS_param("ShKextDg"),
+		displayMode = jjjFPS_param("disM"),
+		showDetails = jjjFPS_param("disD") == true,
+		hudAlpha = jjjFPS_param("disA"),
+		hudX = jjjFPS_dispX,
+		hudY = jjjFPS_dispY,
+		hudWidth = jjjFPS_param("MTwd"),
+		hudLineHeight = jjjFPS_param("MTht"),
+		hudPositionAbsolute = jjjFPS_dispX > 0 and jjjFPS_dispY > 0,
+		language = jjjFPS_param("lang") or "auto",
+		restoreLOD = jjjFPS_DR_lodBiasOrig,
+		restoreCloudSteps = jjjFPS_DR_cloudsSegStepsOrig,
+		restoreCloudStart = jjjFPS_DR_cloudsStepStartOrig,
+		restoreShadowInterior = jjjFPS_DR_shdLimitIntOrig,
+		restoreShadowExterior = jjjFPS_DR_shdLimitExtOrig,
+		restoreShadowBillboards = jjjFPS_DR_shdBillboardsOrig,
+		restoreFSROn = jjjFPS_DR_FSRonOrig,
+		restoreFSRQuality = jjjFPS_DR_FSRqOrig
+	}
+end
+
+jjjFPS_nativeSync = function()
+	if jjjFPS_nativeEnabled and type(threejfps_set_config) == "function" then
+		threejfps_set_config(jjjFPS_nativeConfig())
+	end
+end
+
 
 function jjjFPS_setAutoModeManual(mode)
 	if jjjFPS_saveMode then
@@ -807,6 +880,64 @@ function jjjFPS_setAutoMode(mode)
 		jjjFPS_lastChangeFSRtime = 0
 	end
 	jjjFPS_setMoveMode(0)
+	if jjjFPS_nativeEnabled then
+		jjjFPS_nativeSync()
+	end
+end
+
+-- Called by the C++ command queue on the X-Plane main thread. The function
+-- deliberately does not save ordinary edits; SAVE and CANCEL below own the
+-- persistence boundary used by the SwiftUI editor.
+function jjjFPS_nativeApplyCommand(kind, key, value)
+	if kind ~= "save" and kind ~= "cancel" then
+		jjjFPS_nativeEditing = true
+	end
+	if kind == "mode" then
+		local mode = key
+		if mode == "auto" then mode = "on" end
+		if mode == "max-fps" then mode = "max" end
+		if mode == "max-quality" then mode = "min" end
+		jjjFPS_setParam("mode", mode)
+		jjjFPS_setAutoMode(mode)
+	elseif kind == "profile" then
+		jjjFPS_setProfile(key)
+	elseif kind == "param" then
+		jjjFPS_setParam(key, value)
+	elseif kind == "language" then
+		jjjFPS_setParam("lang", key)
+	elseif kind == "save" then
+		jjjLib1.saveParams(jjjFPS_plId, "global")
+		jjjLib1.saveParams(jjjFPS_plId, "global-profile")
+		jjjFPS_nativeEditing = false
+	elseif kind == "cancel" then
+		jjjFPS_setOrigDatarefs()
+		jjjLib1.loadParams(jjjFPS_plId, "global")
+		local savedProfile = jjjFPS_param("profile") or "A"
+		jjjLib1.setParamProfile(jjjFPS_plId, savedProfile)
+		jjjLib1.loadParams(jjjFPS_plId, "global-profile")
+		jjjFPS_profile = savedProfile
+		jjjFPS_setPosition()
+		jjjFPS_setAutoMode(jjjFPS_param("mode") or "on")
+		jjjFPS_nativeEditing = false
+	elseif kind == "defaults" then
+		jjjFPS_setParamsDefault()
+	elseif kind == "hudPosition" then
+		local x, y = string.match(key or "", "^(-?%d+),(-?%d+)$")
+		if x and y then
+			jjjFPS_setParam("disX", tonumber(x))
+			jjjFPS_setParam("disY", tonumber(y))
+			jjjFPS_setPosition()
+		end
+	elseif kind == "hudSize" then
+		local width, height = string.match(key or "", "^(%d+),(%d+)$")
+		if width and height then
+			jjjFPS_setParam("MTwd", tonumber(width))
+			jjjFPS_setParam("MTht", tonumber(height))
+			jjjFPS_width = tonumber(width)
+			jjjFPS_lineHeight = tonumber(height)
+		end
+	end
+	jjjFPS_nativeSync()
 end
 
 function jjjFPS_toggleAutoMode()
@@ -881,7 +1012,9 @@ function jjjFPS_setProfile(profile)
 	if jjjFPS_profile ~= profile then
 		jjjFPS_profile = profile
 		jjjFPS_setParam("profile", profile)
-		jjjLib1.saveParams(jjjFPS_plId, "global")
+		if not jjjFPS_nativeEditing then
+			jjjLib1.saveParams(jjjFPS_plId, "global")
+		end
 		jjjLib1.setParamProfile(jjjFPS_plId, jjjFPS_profile)
 		jjjLib1.loadParams(jjjFPS_plId, "global-profile")
 		jjjFPS_setPosition()
@@ -891,6 +1024,9 @@ function jjjFPS_setProfile(profile)
 		jjjFPS_setMoveMode(0)
 		if jjjFPS_panelMode and jjjFPS_refreshPanel then
 			jjjFPS_refreshPanel()
+		end
+		if jjjFPS_nativeEnabled then
+			jjjFPS_nativeSync()
 		end
 	end
 end
@@ -945,6 +1081,10 @@ jjjLib1.setParamsActionOnSet(jjjFPS_plId, "jjjFPS_calcMeter()")
 jjjFPS_setStutterMode()
 
 function jjjFPS_exit()
+	if jjjFPS_nativeEnabled and type(threejfps_unregister) == "function" then
+		threejfps_unregister()
+		jjjFPS_nativeEnabled = false
+	end
 	jjjFPS_setMoveMode(0)
 	jjjFPS_setOrigDatarefs()
 end
@@ -2497,6 +2637,10 @@ function jjjFPS_closePanel()
 	jjjLib1.closePanel(jjjFPS_plId, jjjFPS_pnId)
 end
 function jjjFPS_togglePanel()
+	if jjjFPS_nativeEnabled and type(threejfps_open_settings) == "function" then
+		threejfps_open_settings()
+		return
+	end
 	if jjjFPS_panelMode ~= "" then
 		if jjjFPS_panelMode == "main" then
 			jjjFPS_setPanelMode("")
@@ -2510,6 +2654,10 @@ function jjjFPS_togglePanel()
 end
 
 function jjjFPS_doScreenShot()
+	if jjjFPS_nativeEnabled and type(threejfps_screenshot) == "function" then
+		threejfps_screenshot()
+		return
+	end
 	if jjjFPS_screenShot < 1 then
 		jjjFPS_screenShot = 1
 	end
@@ -2578,8 +2726,23 @@ create_command("FlyWithLua/3jFPS12/11_screen_shot", "3jFPS12: screen shot (max q
 
 do_on_exit("jjjFPS_exit()")
 
-do_every_frame("jjjFPS_main()")
-do_every_draw("jjjFPS_draw()")
+-- Native builds own the flight-loop controller and HUD. Keeping the legacy
+-- registrations behind this capability check preserves the jjjLib1 panel
+-- fallback for portable/older hosts without allowing two controllers to run.
+-- Development-only A/B switch: launch X-Plane with
+-- FLYWITHLUA_3JFPS_AB=legacy to compare the old Lua controller against the
+-- native path. Do not expose or persist this flag; remove it with the legacy
+-- controller after native acceptance.
+local jjjFPS_nativeAB = type(os) == "table" and os.getenv("FLYWITHLUA_3JFPS_AB") or nil
+if type(threejfps_register) == "function" and jjjFPS_nativeAB ~= "legacy" then
+	jjjFPS_nativeEnabled = true
+	threejfps_register(jjjFPS_nativeConfig())
+	jjjFPS_nativeSync()
+	do_sometimes("jjjFPS_checkAutoProfile()")
+else
+	do_every_frame("jjjFPS_main()")
+	do_every_draw("jjjFPS_draw()")
+end
 do_sometimes("jjjFPS_retryDataRefs()")
 do_sometimes("jjjFPS_check()")
 

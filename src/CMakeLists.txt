@@ -7,6 +7,8 @@
 
 cmake_minimum_required(VERSION 3.9)
 project(FlyWithLua VERSION 2.8.0 DESCRIPTION "FlyWithLua X-Plane plugin")
+
+option(BUILD_THREEJFPS_TESTS "Build synthetic 3jFPS12 controller tests" OFF)
 # We now have SDK support for arm so building for both architectures for the Mac.
 # X-Plane supports OS X 11.0+, so this should ensure FlyWithLua can run on
 # all supported versions.
@@ -101,7 +103,9 @@ add_compile_options(-O3 -fPIC)
 
 # X-Plane plugin
 # FIXME: Split this into individual targets.
-list(APPEND FLYWITHLUA_SRCS FlyWithLua.cpp ../cmake/FlyWithLuaSwiftBridgeStubs.cpp third_party/iniReader/inireader.cpp third_party/iniReader/readinifile.cpp)
+list(APPEND FLYWITHLUA_SRCS FlyWithLua.cpp ../cmake/FlyWithLuaSwiftBridgeStubs.cpp
+    Native3jFPS12/ThreeJFPSControllerCore.cpp Native3jFPS12/ThreeJFPSNative.cpp
+    third_party/iniReader/inireader.cpp third_party/iniReader/readinifile.cpp)
 list(APPEND FLYWITHLUA_SRCS FloatingWindows/FLWIntegration.cpp FloatingWindows/ImGUIIntegration.cpp FloatingWindows/FloatingWindow.cpp)
 list(APPEND FLYWITHLUA_SRCS imgui/imgui.cpp imgui/imgui_demo.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp imgui/imgui_lua_bindings.cpp)
 list(APPEND FLYWITHLUA_SRCS Fmod/FmodIntegration.cpp)
@@ -233,3 +237,14 @@ elseif (UNIX)
     set_target_properties(FlyWithLua PROPERTIES OUTPUT_NAME "lin")
 endif ()
 set_target_properties(FlyWithLua PROPERTIES SUFFIX ".xpl")
+
+if (BUILD_THREEJFPS_TESTS)
+    enable_testing()
+    add_executable(ThreeJFPSControllerCoreTests
+        "${CMAKE_SOURCE_DIR}/../tests/native/ThreeJFPSControllerCoreTests.cpp"
+        Native3jFPS12/ThreeJFPSControllerCore.cpp)
+    target_include_directories(ThreeJFPSControllerCoreTests PRIVATE
+        "${CMAKE_SOURCE_DIR}/Native3jFPS12")
+    target_compile_features(ThreeJFPSControllerCoreTests PRIVATE cxx_std_11)
+    add_test(NAME ThreeJFPSControllerCoreTests COMMAND ThreeJFPSControllerCoreTests)
+endif ()

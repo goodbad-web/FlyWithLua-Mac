@@ -24,6 +24,9 @@ void flywithlua_update_script_load_results(const char* jsonPayload);
 void flywithlua_update_current_altitude(double altitude);
 void flywithlua_update_last_log_message(const char* message);
 void flywithlua_toggle_window(void);
+void flywithlua_update_3jfps_snapshot(const char* jsonPayload);
+void flywithlua_show_3jfps_settings(void);
+void threejfps_enqueue_command(const char* jsonCommand);
 
 #include <OpenGL/gl.h>
 

@@ -46,6 +46,7 @@
 		6CC8896BA6501B40557CB03A /* luasocket-scm-0.rockspec in Resources */ = {isa = PBXBuildFile; fileRef = 720685EF5A9390D46A983886 /* luasocket-scm-0.rockspec */; };
 		6CCCB4C1DA1145D51EF7B123 /* Lua.props in Resources */ = {isa = PBXBuildFile; fileRef = 02836389DEAE1E366CB3D947 /* Lua.props */; };
 		6E607F2A357BEF77B76B1DDD /* imgui_demo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F50641A47BC16514B5D4C9E3 /* imgui_demo.cpp */; };
+		703E5BF6F2A34AE2F6125A08 /* ThreeJFPSSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F486F6917D86DC95EBD2D03 /* ThreeJFPSSettingsView.swift */; };
 		71559984A87031E4851D61F2 /* options.c in Sources */ = {isa = PBXBuildFile; fileRef = 1F302A0DDC0E8E0268276345 /* options.c */; };
 		74A6C4B55C7E0BC8CEF111A7 /* udp.c in Sources */ = {isa = PBXBuildFile; fileRef = 505E92F0750292842351445A /* udp.c */; };
 		77A81D79ACAB6EAB2FBF12B8 /* FLWIntegration.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 275139C7935840CBB983FA23 /* FLWIntegration.cpp */; };
@@ -54,6 +55,7 @@
 		806367E1B8E082B53433E123 /* auxiliar.c in Sources */ = {isa = PBXBuildFile; fileRef = A98C5854D20FCDD537540BCD /* auxiliar.c */; };
 		83DC0C131D45999E86E33D3E /* inet.c in Sources */ = {isa = PBXBuildFile; fileRef = 9C70FC511FF27C8C45AF4CCA /* inet.c */; };
 		866C6645EE5C09555E7C789E /* XPWidgets.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 079337C7859B4EDBEE53AB7C /* XPWidgets.framework */; };
+		89572D285CA16DB9E1A97A0D /* ThreeJFPSNative.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DE76C8915345EC3A0A2FF1E6 /* ThreeJFPSNative.cpp */; };
 		8A783EAE956E9EEBB3F6753B /* ltn012.wiki in Resources */ = {isa = PBXBuildFile; fileRef = A57892933258D9F349D78ACD /* ltn012.wiki */; };
 		97735B1D0413B7F9CF0CCF8E /* select.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C51B4D4730A18BB9EEB9DD6 /* select.c */; };
 		9873A5CAFA62ED53C5656FE9 /* DataRef.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2288AB8CA882FF33A1F58A2 /* DataRef.swift */; };
@@ -80,9 +82,11 @@
 		CA9EA31641DF9BD2E26AC059 /* libfmodstudio.so.13.10 in Resources */ = {isa = PBXBuildFile; fileRef = 89BA172AC282B498429D69FB /* libfmodstudio.so.13.10 */; };
 		CB696D923BA355BF8FC9EFDB /* gem.c in Sources */ = {isa = PBXBuildFile; fileRef = F1153EBD40B8A47DCE799686 /* gem.c */; };
 		CCCAEC853A493FBD221FBCB7 /* parse_blocks.pl in Resources */ = {isa = PBXBuildFile; fileRef = 494FE09444EF862E67CC4545 /* parse_blocks.pl */; };
+		CD0D3D896B7AEDFF50FBC662 /* ThreeJFPSUIState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62CA8009B37BA36E97446876 /* ThreeJFPSUIState.swift */; };
 		CEFE6293A006C8BB58F578D3 /* macosx.cmd in Resources */ = {isa = PBXBuildFile; fileRef = 62A1EB43FEC959EF0C0B3792 /* macosx.cmd */; };
 		D10FBF5FA1EFCB81CB064A4B /* FloatingWindow.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E125F1B6EF95B765BA11A16A /* FloatingWindow.cpp */; };
 		D223AFE1C3D8426D8DDB85A0 /* t2gt.qp in Resources */ = {isa = PBXBuildFile; fileRef = 1B301843EBD8D9C2211D4AB7 /* t2gt.qp */; };
+		D38CE0595C7D4CC1868F1414 /* ThreeJFPSControllerCore.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A2626C56C2DBEDAC67A136EC /* ThreeJFPSControllerCore.cpp */; };
 		D55C14CE3D8781A4BED20C2D /* fmod.dll in Resources */ = {isa = PBXBuildFile; fileRef = 261BD68AC6A7A10863AAFF43 /* fmod.dll */; };
 		DF0E9A4948A044D57B445FAC /* ltn013.wiki in Resources */ = {isa = PBXBuildFile; fileRef = 9D784F9F8E786B3798FBD235 /* ltn013.wiki */; };
 		DF24325CDEED92E8ADD709AC /* linux.cmd in Resources */ = {isa = PBXBuildFile; fileRef = F4C3AAF9A56314DF5C69DA05 /* linux.cmd */; };
@@ -172,6 +176,7 @@
 		333659F17595EA9E423938EC /* fmod_studio_common.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod_studio_common.h; sourceTree = "<group>"; };
 		34524CDABBF24B6D5626E7B3 /* README */ = {isa = PBXFileReference; path = README; sourceTree = "<group>"; };
 		35A8F927925E670ECBA12462 /* makefile.dist */ = {isa = PBXFileReference; path = makefile.dist; sourceTree = "<group>"; };
+		35AAE230FE202DE7FDCB48ED /* ThreeJFPSControllerCore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ThreeJFPSControllerCore.h; sourceTree = "<group>"; };
 		37FB35D45F511A8ADC8D72B5 /* XPSDKGateway.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPSDKGateway.swift; sourceTree = "<group>"; };
 		38BD114D4F1F868362C4C6BF /* glut64.dll */ = {isa = PBXFileReference; path = glut64.dll; sourceTree = "<group>"; };
 		39C0932F93018D6ECE2DF7FD /* XPLMProcessing.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMProcessing.h; sourceTree = "<group>"; };
@@ -208,6 +213,7 @@
 		608CE694E6567BAF51B00735 /* XPLM_64.lib */ = {isa = PBXFileReference; path = XPLM_64.lib; sourceTree = "<group>"; };
 		6101E7406517FD08F9A15E71 /* select.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = select.h; sourceTree = "<group>"; };
 		62A1EB43FEC959EF0C0B3792 /* macosx.cmd */ = {isa = PBXFileReference; path = macosx.cmd; sourceTree = "<group>"; };
+		62CA8009B37BA36E97446876 /* ThreeJFPSUIState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreeJFPSUIState.swift; sourceTree = "<group>"; };
 		640F52934B01A54787B86EEC /* mingw.cmd */ = {isa = PBXFileReference; path = mingw.cmd; sourceTree = "<group>"; };
 		64EE10CBD1AFC5419C9034F9 /* unixdgram.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = unixdgram.c; sourceTree = "<group>"; };
 		6689BBB8B8E2DDA05583A157 /* lua05.ppt */ = {isa = PBXFileReference; path = lua05.ppt; sourceTree = "<group>"; };
@@ -215,6 +221,7 @@
 		6B21EB27E8FAB188EDBC5310 /* find-connect-limit */ = {isa = PBXFileReference; path = "find-connect-limit"; sourceTree = "<group>"; };
 		6D823CA03D159FDD1ECFFC1F /* fmod.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = fmod.hpp; sourceTree = "<group>"; };
 		6DEB063CDCFC07C24315EB70 /* options.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = options.h; sourceTree = "<group>"; };
+		6F486F6917D86DC95EBD2D03 /* ThreeJFPSSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreeJFPSSettingsView.swift; sourceTree = "<group>"; };
 		6F910809C3E4A5A99D8B860C /* usocket.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = usocket.h; sourceTree = "<group>"; };
 		6FC83EE09BBDB4610C808797 /* udp-zero-length-send-recv */ = {isa = PBXFileReference; path = "udp-zero-length-send-recv"; sourceTree = "<group>"; };
 		715826C2FCFD31816EE3ACC9 /* .travis.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = .travis.yml; sourceTree = "<group>"; };
@@ -249,6 +256,7 @@
 		9E408E5DBE5C2E5665D7D3C2 /* cat-index-html */ = {isa = PBXFileReference; path = "cat-index-html"; sourceTree = "<group>"; };
 		9F41D6BB5DE8B0C75AE95CA9 /* timeout.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = timeout.c; sourceTree = "<group>"; };
 		9F6186B1A4FA8E21E154E9AB /* fwl_dataref.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fwl_dataref.h; sourceTree = "<group>"; };
+		A2626C56C2DBEDAC67A136EC /* ThreeJFPSControllerCore.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ThreeJFPSControllerCore.cpp; sourceTree = "<group>"; };
 		A4CD8AD913908C4C964D824A /* imgui_tables.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = imgui_tables.cpp; sourceTree = "<group>"; };
 		A57892933258D9F349D78ACD /* ltn012.wiki */ = {isa = PBXFileReference; path = ltn012.wiki; sourceTree = "<group>"; };
 		A6D5695862E03C906DCDDCFE /* inireader.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = inireader.cpp; sourceTree = "<group>"; };
@@ -287,6 +295,7 @@
 		C7530C8534ED6529A89A7E69 /* FmodIntegration.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FmodIntegration.h; sourceTree = "<group>"; };
 		C78799CCF786A0B41598AF5D /* mime.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = mime.c; sourceTree = "<group>"; };
 		C9069B51C0EC409A77E79143 /* FIX */ = {isa = PBXFileReference; path = FIX; sourceTree = "<group>"; };
+		CBD2527F8898059579FA50CC /* ThreeJFPSNative.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ThreeJFPSNative.h; sourceTree = "<group>"; };
 		CD0F625D77357D56F548322E /* efx.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = efx.h; sourceTree = "<group>"; };
 		CDEBB26DDAC97D87AF9F1BFF /* imstb_rectpack.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = imstb_rectpack.h; sourceTree = "<group>"; };
 		CED8C56A348B02F7EA8610EC /* XPWidgets.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPWidgets.h; sourceTree = "<group>"; };
@@ -308,6 +317,7 @@
 		D6B02FA86B20943D67425302 /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
 		DB8616C83CB745E814E2C20A /* AsyncScriptManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncScriptManager.swift; sourceTree = "<group>"; };
 		DC44511618F4E3E61D688786 /* fmod4xpdefaultbus.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod4xpdefaultbus.h; sourceTree = "<group>"; };
+		DE76C8915345EC3A0A2FF1E6 /* ThreeJFPSNative.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ThreeJFPSNative.cpp; sourceTree = "<group>"; };
 		DEB43BD8C371F4003FB73139 /* ltn012.tex */ = {isa = PBXFileReference; path = ltn012.tex; sourceTree = "<group>"; };
 		DEF6BF30A9D5C9E1B26EF769 /* fix_lua_tointeger.patch */ = {isa = PBXFileReference; path = fix_lua_tointeger.patch; sourceTree = "<group>"; };
 		E125F1B6EF95B765BA11A16A /* FloatingWindow.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = FloatingWindow.cpp; sourceTree = "<group>"; };
@@ -568,6 +578,7 @@
 				99813EBE3C536E2BDC8E3D60 /* hidapi */,
 				B1096002F32CD25EEEE4F95B /* imgui */,
 				E7FAC287EA7C51ECB09A377C /* Metal */,
+				F25C1C82109F99950053C1E1 /* Native3jFPS12 */,
 				0956F42B36DFE67A1D3A170A /* OpenAL */,
 				B44F3082F906FF7B9E75AA55 /* SDK */,
 				8DE13E5E278C2D056BE37318 /* third_party */,
@@ -741,6 +752,8 @@
 			isa = PBXGroup;
 			children = (
 				2A031ACE38CE1608F2C845C4 /* MainView.swift */,
+				6F486F6917D86DC95EBD2D03 /* ThreeJFPSSettingsView.swift */,
+				62CA8009B37BA36E97446876 /* ThreeJFPSUIState.swift */,
 				B32E1926E38F5A35141335FA /* XPUIState.swift */,
 				05E9C47048ED540143FACB4E /* XPWindowManager.swift */,
 			);
@@ -943,6 +956,17 @@
 			path = etc;
 			sourceTree = "<group>";
 		};
+		F25C1C82109F99950053C1E1 /* Native3jFPS12 */ = {
+			isa = PBXGroup;
+			children = (
+				A2626C56C2DBEDAC67A136EC /* ThreeJFPSControllerCore.cpp */,
+				35AAE230FE202DE7FDCB48ED /* ThreeJFPSControllerCore.h */,
+				DE76C8915345EC3A0A2FF1E6 /* ThreeJFPSNative.cpp */,
+				CBD2527F8898059579FA50CC /* ThreeJFPSNative.h */,
+			);
+			path = Native3jFPS12;
+			sourceTree = "<group>";
+		};
 		FA081A8FA8617F94D5DEB2B9 /* luaxml */ = {
 			isa = PBXGroup;
 			children = (
@@ -1102,6 +1126,10 @@
 				01663215E05D322AE5BC8A82 /* MetalTextureBridge.swift in Sources */,
 				E8FAA226961185D4E1270CB9 /* PluginConfigActor.swift in Sources */,
 				9ECDF88592039FA71A9347C2 /* Shaders.metal in Sources */,
+				D38CE0595C7D4CC1868F1414 /* ThreeJFPSControllerCore.cpp in Sources */,
+				89572D285CA16DB9E1A97A0D /* ThreeJFPSNative.cpp in Sources */,
+				703E5BF6F2A34AE2F6125A08 /* ThreeJFPSSettingsView.swift in Sources */,
+				CD0D3D896B7AEDFF50FBC662 /* ThreeJFPSUIState.swift in Sources */,
 				7C75B364783E1F84E57BF5A3 /* XPLMUtilities+Swift.swift in Sources */,
 				BFB5D625A13636DE7720DB8B /* XPSDKGateway.swift in Sources */,
 				46F848ACF2E65A8B5ADDF421 /* XPUIState.swift in Sources */,

@@ -42,8 +42,20 @@ public func flywithlua_toggle_window() {
     XPWindowManager.shared.toggleWindow()
 }
 
+@_cdecl("flywithlua_show_3jfps_settings")
+public func flywithlua_show_3jfps_settings() {
+    XPWindowManager.shared.show3jFPSSettings()
+}
+
+@_cdecl("flywithlua_update_3jfps_snapshot")
+public func flywithlua_update_3jfps_snapshot(_ jsonPayload: UnsafePointer<CChar>?) {
+    guard let jsonPayload else { return }
+    ThreeJFPSUIState.shared.updateSnapshot(String(cString: jsonPayload))
+}
+
 @_cdecl("flywithlua_update_current_altitude")
 public func flywithlua_update_current_altitude(_ altitude: Double) {
+    guard XPWindowManager.shared.isWindowVisible else { return }
     XPUIState.shared.updateCurrentAltitude(altitude)
 }
 

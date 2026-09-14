@@ -266,6 +266,280 @@ local function test_hud()
 	assert(generated:find("quote", 1, true))
 end
 
+local function test_hud_g1000()
+	local hud_path = root .. "/FlyWithLua/Scripts/HUD-G1000.lua"
+	local position_path = tmp .. "/HUD-G1000.position.cfg"
+	os.remove(position_path)
+
+	local function make_data()
+		return {
+			["sim/time/framerate_period"] = 1 / 60,
+			["sim/time/total_running_time_sec"] = 10,
+			["sim/cockpit2/gauges/indicators/airspeed_kts_pilot"] = 120,
+			["sim/cockpit2/gauges/indicators/altitude_ft_pilot"] = 4500,
+			["sim/cockpit2/gauges/indicators/vvi_fpm_pilot"] = 100,
+			["sim/flightmodel/position/y_agl"] = 1200,
+			["sim/flightmodel/position/mag_psi"] = 361,
+			["sim/cockpit2/gauges/indicators/wind_heading_deg_mag"] = 359,
+			["sim/cockpit2/gauges/indicators/wind_speed_kts"] = 12,
+			["sim/flightmodel2/controls/flap1_deploy_ratio"] = 0.5,
+			["sim/cockpit2/controls/elevator_trim"] = 0.2,
+			["sim/cockpit2/controls/parking_brake_ratio"] = 0,
+			["sim/flightmodel2/gear/deploy_ratio"] = {[0] = 1, [1] = 1, [2] = 1},
+			["sim/cockpit2/radios/actuators/transponder_mode"] = 3,
+			["sim/cockpit/autopilot/autopilot_state"] = 16386,
+			["sim/aircraft/engine/acf_num_engines"] = 2,
+			["sim/cockpit2/engine/actuators/fuel_pump_on"] = {[0] = 1, [1] = 1},
+			["sim/cockpit/electrical/beacon_lights_on"] = 1,
+			["sim/cockpit2/switches/landing_lights_switch"] = {[0] = 1},
+			["sim/cockpit2/switches/taxi_light_on"] = 0,
+			["sim/cockpit2/switches/navigation_lights_on"] = 1,
+			["sim/cockpit2/switches/strobe_lights_on"] = 0,
+			["sim/cockpit2/ice/ice_pitot_heat_on_pilot"] = 1,
+			["sim/cockpit2/controls/gear_handle_down"] = 1,
+			["sim/cockpit2/annunciators/gear_warning"] = 0,
+			["sim/cockpit/warnings/annunciators/master_warning"] = 0,
+			["sim/cockpit/warnings/annunciators/fuel_quantity"] = 0,
+			["sim/cockpit/warnings/annunciators/master_caution"] = 0,
+			["sim/cockpit/warnings/annunciators/low_voltage"] = 0,
+			["sim/cockpit/warnings/annunciators/pitot_heat_off"] = 0,
+			["sim/cockpit/warnings/annunciators/autopilot_disconnect"] = 0,
+			["sim/cockpit/warnings/annunciators/engine_fires"] = {[0] = 0, [1] = 0},
+			["sim/cockpit/warnings/annunciators/oil_pressure_low"] = {[0] = 0, [1] = 0},
+			["sim/cockpit/warnings/annunciators/oil_temperature_high"] = {[0] = 0, [1] = 0},
+			["sim/cockpit/warnings/annunciators/generator_off"] = {[0] = 0, [1] = 0},
+		}
+	end
+
+	local function make_environment(data, draws, logs)
+		local env = new_environment()
+		local commands = {}
+		local callbacks = {}
+		env.SCREEN_WIDTH = 1920
+		env.SCREEN_HIGHT = 1080
+		env.SCRIPT_DIRECTORY = tmp .. "/"
+		env.PLUGIN_MAIN_DIRECTORY = tmp
+		env.PLANE_ICAO = "BE58"
+		env.MOUSE_X = 0
+		env.MOUSE_Y = 0
+		env.MOUSE_STATUS = "up"
+		env.RESUME_MOUSE_CLICK = false
+		env.get = function(path, index)
+			local value = data[path]
+			if type(value) == "table" then return value[index] end
+			if index ~= nil then return nil end
+			return value
+		end
+		env.graphics = setmetatable({
+			set_color = function() end,
+			draw_rectangle = function() end,
+			draw_line = function() end,
+			draw_circle = function() end,
+			draw_filled_circle = function() end,
+		}, {__index = function() return function() end end})
+		env.require = function(name)
+			if name == "graphics" then return env.graphics end
+			return require(name)
+		end
+		env.create_command = function(name, description, press, begin, end_command)
+			commands[name] = {description, press, begin, end_command}
+		end
+		env.do_every_frame = function(code) callbacks.every_frame = code end
+		env.do_every_draw = function(code) callbacks.every_draw = code end
+		env.do_on_mouse_click = function(code) callbacks.mouse_click = code end
+		env.logMsg = function(message) logs[#logs + 1] = message end
+		env.measure_string = function(text) return #tostring(text) * 7 end
+		local function record(text) draws[#draws + 1] = tostring(text) end
+		env.draw_string_Helvetica_10 = function(_, _, text) record(text) end
+		env.draw_string_Helvetica_12 = function(_, _, text) record(text) end
+		env.draw_string_Helvetica_18 = function(_, _, text) record(text) end
+		env._hud_commands = commands
+		env._hud_callbacks = callbacks
+		return env
+	end
+
+	local data = make_data()
+	local draws = {}
+	local logs = {}
+	local env = make_environment(data, draws, logs)
+	local function drew(text)
+		for index = 1, #draws do
+			if draws[index] == text then return true end
+		end
+		return false
+	end
+	load_in_environment(hud_path, env)
+
+	assert(env._hud_commands["FlyWithLua/HUD-G1000/toggle"])
+	assert(env._hud_commands["FlyWithLua/HUD-G1000/edit_position"])
+	assert(env._hud_commands["FlyWithLua/HUD-G1000/reset_position"])
+	assert(env._hud_callbacks.every_frame == "hud_g1000.update()")
+	assert(env._hud_callbacks.every_draw == "hud_g1000.draw()")
+	assert(env._hud_callbacks.mouse_click == "hud_g1000.handle_mouse_click()")
+
+	env.hud_g1000.update()
+	local snapshot = env.hud_g1000.state.snapshot
+	assert(snapshot.ias == 120)
+	assert(snapshot.altitude_ft == 4500)
+	assert(snapshot.vvi_raw == 100)
+	assert(math.abs(snapshot.agl_ft - 3937.008) < 0.01)
+	assert(snapshot.heading == 1)
+	assert(snapshot.gear.status == "DOWN")
+	assert(snapshot.transponder.text == "ALT")
+	assert(snapshot.autopilot.text == "HDG/ALT")
+	assert(snapshot.autopilot.lateral == "HDG")
+	assert(snapshot.autopilot.vertical == "ALT")
+	assert(snapshot.missing_count == 0)
+	env.hud_g1000.draw()
+	assert(drew("120"))
+	assert(drew("04500"))
+	assert(drew("+0100"))
+	assert(drew("3937"))
+	assert(drew("001"))
+
+	local bottom_left = env.hud_g1000.get_layout(1920, 1080)
+	assert(bottom_left.x == 18)
+	assert(bottom_left.y == 28)
+	env.hud_g1000.position = {anchor = "top_left", offset_x = 10, offset_y = 20}
+	local top_left = env.hud_g1000.get_layout(1920, 1080)
+	assert(top_left.x == 10)
+	assert(top_left.y == 876)
+	env.hud_g1000.position = {anchor = "top_right", offset_x = 10, offset_y = 20}
+	local top_right = env.hud_g1000.get_layout(1920, 1080)
+	assert(top_right.x == 1350)
+	assert(top_right.y == 876)
+	env.hud_g1000.position = {anchor = "bottom_right", offset_x = 10, offset_y = 20}
+	local bottom_right = env.hud_g1000.get_layout(1920, 1080)
+	assert(bottom_right.x == 1350)
+	assert(bottom_right.y == 20)
+
+	data["sim/cockpit2/gauges/indicators/airspeed_kts_pilot"] = nil
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.ias == nil)
+	assert(env.hud_g1000.state.snapshot.alert.code == "data_unavailable")
+	env.hud_g1000.draw()
+	local saw_dash = false
+	local saw_unavailable = false
+	for index = 1, #draws do
+		if draws[index] == "--" then saw_dash = true end
+		if draws[index] == "DATA UNAVAILABLE" then saw_unavailable = true end
+	end
+	assert(saw_dash)
+	assert(saw_unavailable)
+
+	data["sim/cockpit2/gauges/indicators/airspeed_kts_pilot"] = 120
+	local transponder_labels = {[0] = "OFF", [1] = "STBY", [2] = "ON", [3] = "ALT", [4] = "TEST", [5] = "GND", [6] = "TA", [7] = "TA/RA"}
+	for mode = 0, 7 do
+		data["sim/cockpit2/radios/actuators/transponder_mode"] = mode
+		env.hud_g1000.update()
+		assert(env.hud_g1000.state.snapshot.transponder.text == transponder_labels[mode])
+	end
+	data["sim/cockpit2/radios/actuators/transponder_mode"] = 8
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.transponder.text == "--")
+	data["sim/cockpit2/radios/actuators/transponder_mode"] = 3
+
+	data["sim/flightmodel2/gear/deploy_ratio"] = {[0] = 1, [1] = 0.5, [2] = 1}
+	data["sim/cockpit2/radios/actuators/transponder_mode"] = 3
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.gear.status == "TRANSIT")
+
+	env.PLANE_ICAO = "C172"
+	data["sim/flightmodel2/gear/deploy_ratio"] = nil
+	data["sim/cockpit2/controls/gear_handle_down"] = 1
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.gear.profile == "generic")
+	assert(env.hud_g1000.state.snapshot.gear.status == "DOWN")
+
+	data["sim/cockpit/warnings/annunciators/engine_fires"][0] = 1
+	data["sim/cockpit/warnings/annunciators/fuel_quantity"] = 1
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.alert.code == "engine_fire")
+	data["sim/cockpit/warnings/annunciators/engine_fires"][0] = 0
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.alert.code == "low_fuel")
+	data["sim/cockpit2/annunciators/master_warning"] = 1
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.alert.code == "master_warning")
+	data["sim/cockpit2/annunciators/master_warning"] = 0
+	data["sim/cockpit/warnings/annunciators/fuel_quantity"] = 0
+
+	data["sim/cockpit/warnings/annunciators/fuel_quantity"] = 0
+	data["sim/cockpit2/controls/gear_handle_down"] = 0
+	data["sim/flightmodel/position/y_agl"] = 100
+	data["sim/cockpit2/gauges/indicators/vvi_fpm_pilot"] = -500
+	data["sim/time/total_running_time_sec"] = 20
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.alert.code == "low_alt_gear")
+
+	data["sim/cockpit2/controls/gear_handle_down"] = 1
+	data["sim/flightmodel/position/y_agl"] = 1200
+	data["sim/cockpit2/gauges/indicators/vvi_fpm_pilot"] = 100
+	data["sim/time/total_running_time_sec"] = 30
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.alert ~= nil)
+	data["sim/time/total_running_time_sec"] = 30.3
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.alert ~= nil)
+	data["sim/time/total_running_time_sec"] = 30.6
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.alert == nil)
+
+	env.hud_g1000.position = {anchor = "bottom_left", offset_x = 18, offset_y = 28}
+	env.hud_g1000.edit_position()
+	local drag_layout = env.hud_g1000.get_layout(1920, 1080)
+	env.MOUSE_X = drag_layout.x + 20
+	env.MOUSE_Y = drag_layout.y + 20
+	env.MOUSE_STATUS = "down"
+	env.hud_g1000.handle_mouse_click()
+	env.MOUSE_X = env.MOUSE_X + 100
+	env.MOUSE_Y = env.MOUSE_Y + 50
+	env.MOUSE_STATUS = "drag"
+	env.hud_g1000.handle_mouse_click()
+	env.MOUSE_STATUS = "up"
+	env.hud_g1000.handle_mouse_click()
+	assert(env.hud_g1000.position.offset_x == 118)
+	assert(env.hud_g1000.position.offset_y == 78)
+	local first_saved_position = assert(io.open(position_path, "r")):read("*a")
+	assert(first_saved_position:find("offset_x=118", 1, true))
+	assert(first_saved_position:find("offset_y=78", 1, true))
+	drag_layout = env.hud_g1000.get_layout(1920, 1080)
+	env.MOUSE_X = drag_layout.x + 20
+	env.MOUSE_Y = drag_layout.y + 20
+	env.MOUSE_STATUS = "down"
+	env.hud_g1000.handle_mouse_click()
+	env.MOUSE_X = 9999
+	env.MOUSE_Y = 9999
+	env.MOUSE_STATUS = "drag"
+	env.hud_g1000.handle_mouse_click()
+	env.MOUSE_STATUS = "up"
+	env.hud_g1000.handle_mouse_click()
+	local constrained_layout = env.hud_g1000.get_layout(1920, 1080)
+	assert(constrained_layout.x + constrained_layout.width <= 1920)
+	assert(constrained_layout.y + constrained_layout.height <= 1080)
+	assert(constrained_layout.x == 1360)
+	assert(constrained_layout.y == 896)
+	local saved_position = assert(io.open(position_path, "r")):read("*a")
+	assert(saved_position:find("offset_x=1360", 1, true))
+	assert(saved_position:find("offset_y=896", 1, true))
+	env.hud_g1000.config.language = "ja"
+	env.hud_g1000.update()
+	env.hud_g1000.draw()
+	assert(drew("正常"))
+
+	local corrupt = assert(io.open(position_path, "w"))
+	corrupt:write("anchor=middle\noffset_x=not-a-number\noffset_y=10\n")
+	corrupt:close()
+	local reload_draws = {}
+	local reload_logs = {}
+	local reloaded = make_environment(make_data(), reload_draws, reload_logs)
+	load_in_environment(hud_path, reloaded)
+	assert(reloaded.hud_g1000.position.anchor == "bottom_left")
+	assert(reloaded.hud_g1000.position.offset_x == 18)
+	assert(reloaded.hud_g1000.position.offset_y == 28)
+	assert(#reload_logs == 1)
+end
+
 local function test_sma()
 	local env = new_environment()
 	env.graphics = {}
@@ -361,6 +635,7 @@ test_b58_defaults()
 test_landing_rate()
 test_user_waypoint()
 test_hud()
+test_hud_g1000()
 test_sma()
 test_luaxml_open_failure()
 test_jjjlib_patch_safety()

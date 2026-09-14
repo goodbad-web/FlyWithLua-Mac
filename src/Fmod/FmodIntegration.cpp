@@ -84,7 +84,6 @@ void FMODErrorHandler(const string &file, int line, FMOD_RESULT result)
 }
 
 int fmod_index_num = 0;
-bool init = true;
 
 namespace fmodint {
 
@@ -106,6 +105,24 @@ bool mute_ui_channel_group;
 float ui_channel_group_volume;
 bool mute_master_channel_group;
 float master_channel_group_volume;
+
+struct FmodChannelGroupSyncState {
+    bool valid = false;
+    bool mute = false;
+    float volume = 1.0f;
+};
+
+static FmodChannelGroupSyncState com1_sync_state;
+static FmodChannelGroupSyncState interior_sync_state;
+static FmodChannelGroupSyncState ui_sync_state;
+static FmodChannelGroupSyncState master_sync_state;
+
+static void invalidate_channel_group_sync_states() {
+    com1_sync_state.valid = false;
+    interior_sync_state.valid = false;
+    ui_sync_state.valid = false;
+    master_sync_state.valid = false;
+}
 
 
 void fmod_error_handler(const string &file, int fwl_line, FMOD_RESULT fwl_result)
@@ -906,6 +923,7 @@ int fmod_uninitialize()
     cg_sdk_audio_ui = nullptr;
     cg_sdk_master = nullptr;
     fmod_groups_initialized = false;
+    invalidate_channel_group_sync_states();
 
     sprintf(buf4, "FlyWithLua Info: fmod_uninitialize()  Should be 0 now FmodSounds.size =  %d\n", int(FmodSounds.size()));
     XPLMDebugString(buf4);
@@ -916,40 +934,55 @@ int fmod_uninitialize()
 
 int fmod_data_update()
 {
-    if(init)
-    {
-        com1_channel_group_volume = 1.0;
-        mute_com1_channel_group = false;
-        interior_channel_group_volume = 1.0;
-        mute_interior_channel_group = false;
-        ui_channel_group_volume = 1.0;
-        mute_ui_channel_group = false;
-        master_channel_group_volume = 1.0;
-        mute_master_channel_group = false;
-    }
-
     if(flywithlua_com1_channel_group != nullptr)
     {
         mute_com1_channel_group = flywithlua_com1_channel_group_mute.get();
         com1_channel_group_volume = flywithlua_com1_channel_group_volume.get();
-        setCom1Mute(mute_com1_channel_group);
-        setCom1Volume(com1_channel_group_volume);
+        if (!com1_sync_state.valid || com1_sync_state.mute != mute_com1_channel_group) {
+            setCom1Mute(mute_com1_channel_group);
+            com1_sync_state.mute = mute_com1_channel_group;
+        }
+        if (!com1_sync_state.valid || com1_sync_state.volume != com1_channel_group_volume) {
+            setCom1Volume(com1_channel_group_volume);
+            com1_sync_state.volume = com1_channel_group_volume;
+        }
+        com1_sync_state.valid = true;
+    } else {
+        com1_sync_state.valid = false;
     }
 
     if(flywithlua_interior_channel_group != nullptr)
     {
         mute_interior_channel_group = flywithlua_interior_channel_group_mute.get();
         interior_channel_group_volume = flywithlua_interior_channel_group_volume.get();
-        setInteriorMute(mute_interior_channel_group);
-        setInteriorVolume(interior_channel_group_volume);
+        if (!interior_sync_state.valid || interior_sync_state.mute != mute_interior_channel_group) {
+            setInteriorMute(mute_interior_channel_group);
+            interior_sync_state.mute = mute_interior_channel_group;
+        }
+        if (!interior_sync_state.valid || interior_sync_state.volume != interior_channel_group_volume) {
+            setInteriorVolume(interior_channel_group_volume);
+            interior_sync_state.volume = interior_channel_group_volume;
+        }
+        interior_sync_state.valid = true;
+    } else {
+        interior_sync_state.valid = false;
     }
 
     if(flywithlua_ui_channel_group != nullptr)
     {
         mute_ui_channel_group = flywithlua_ui_channel_group_mute.get();
         ui_channel_group_volume = flywithlua_ui_channel_group_volume.get();
-        setUiMute(mute_ui_channel_group);
-        setUiVolume(ui_channel_group_volume);
+        if (!ui_sync_state.valid || ui_sync_state.mute != mute_ui_channel_group) {
+            setUiMute(mute_ui_channel_group);
+            ui_sync_state.mute = mute_ui_channel_group;
+        }
+        if (!ui_sync_state.valid || ui_sync_state.volume != ui_channel_group_volume) {
+            setUiVolume(ui_channel_group_volume);
+            ui_sync_state.volume = ui_channel_group_volume;
+        }
+        ui_sync_state.valid = true;
+    } else {
+        ui_sync_state.valid = false;
     }
 
 
@@ -957,8 +990,17 @@ int fmod_data_update()
     {
         mute_master_channel_group = flywithlua_master_channel_group_mute.get();
         master_channel_group_volume = flywithlua_master_channel_group_volume.get();
-        setMasterMute(mute_master_channel_group);
-        setMasterVolume(master_channel_group_volume);
+        if (!master_sync_state.valid || master_sync_state.mute != mute_master_channel_group) {
+            setMasterMute(mute_master_channel_group);
+            master_sync_state.mute = mute_master_channel_group;
+        }
+        if (!master_sync_state.valid || master_sync_state.volume != master_channel_group_volume) {
+            setMasterVolume(master_channel_group_volume);
+            master_sync_state.volume = master_channel_group_volume;
+        }
+        master_sync_state.valid = true;
+    } else {
+        master_sync_state.valid = false;
     }
 
     return 0;

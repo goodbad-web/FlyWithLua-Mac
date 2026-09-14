@@ -19,6 +19,10 @@ public final class XPUIState: ObservableObject {
     @Published public var scriptFailedCount: Int = 0
     @Published public var currentAltitude: Double = 0.0
     @Published public var scriptLoadFailures: [ScriptLoadFailure] = []
+    @Published public var selectedTab: Int = 0
+
+    private var hasPublishedAltitude = false
+    private var lastPublishedAltitude = 0.0
     
     private init() {}
 
@@ -44,12 +48,20 @@ public final class XPUIState: ObservableObject {
 
     public func updateCurrentAltitude(_ altitude: Double) {
         if Thread.isMainThread {
-            currentAltitude = altitude
+            applyCurrentAltitude(altitude)
         } else {
             DispatchQueue.main.async { [weak self] in
-                self?.currentAltitude = altitude
+                self?.applyCurrentAltitude(altitude)
             }
         }
+    }
+
+    private func applyCurrentAltitude(_ altitude: Double) {
+        guard altitude.isFinite else { return }
+        guard !hasPublishedAltitude || abs(altitude - lastPublishedAltitude) >= 1.0 else { return }
+        lastPublishedAltitude = altitude
+        hasPublishedAltitude = true
+        currentAltitude = altitude
     }
 
     public func updateScriptCount(_ count: Int) {
@@ -95,6 +107,16 @@ public final class XPUIState: ObservableObject {
         } else {
             DispatchQueue.main.async { [weak self] in
                 self?.lastLogMessage = message
+            }
+        }
+    }
+
+    public func select3jFPS12Tab() {
+        if Thread.isMainThread {
+            selectedTab = 1
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.selectedTab = 1
             }
         }
     }

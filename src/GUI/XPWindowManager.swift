@@ -7,6 +7,12 @@ public final class XPWindowManager: NSObject {
     
     private var window: NSWindow?
     private var hostingController: NSHostingController<MainView>?
+
+    /// The Lua flight-loop callback runs on X-Plane's main thread, so this
+    /// read stays on the same thread as the window lifecycle.
+    public var isWindowVisible: Bool {
+        window?.isVisible == true
+    }
     
     private override init() {
         super.init()
@@ -20,6 +26,15 @@ public final class XPWindowManager: NSObject {
             } else {
                 self.showWindow()
             }
+        }
+    }
+
+    /// Opens the native 3jFPS12 editor and selects its tab.
+    @objc public func show3jFPSSettings() {
+        DispatchQueue.main.async {
+            XPUIState.shared.select3jFPS12Tab()
+            ThreeJFPSUIState.shared.requestSnapshot()
+            self.showWindow()
         }
     }
     
