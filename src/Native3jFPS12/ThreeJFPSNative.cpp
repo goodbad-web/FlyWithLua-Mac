@@ -495,8 +495,11 @@ public:
 
         if (showGraph_) {
             const int graphX = textX + hudTextColumnWidth(showDetails) + kHUDGraphGap;
+            const int detailLines = showDetails ? 4 : 2;
+            const int graphTopY = topY -
+                std::max(0, detailLines - graphRowCount()) * lineHeight;
             HUDPrimitiveStateGuard primitiveState;
-            drawGraph(graphX, topY, hudGraphWidth(), lineHeight, alpha);
+            drawGraph(graphX, graphTopY, hudGraphWidth(), lineHeight, alpha);
         }
 
         if (hudEditing_) {
