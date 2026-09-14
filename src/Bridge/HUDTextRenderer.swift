@@ -164,13 +164,27 @@ public final class HUDTextRenderer {
         return created
     }
 
+    private func currentTextureBinding() -> Int32 {
+        var textureID: Int32 = 0
+        glGetIntegerv(GLenum(GL_TEXTURE_BINDING_2D), &textureID)
+        return textureID
+    }
+
+    private func restoreTextureBinding(_ textureID: Int32) {
+        // glPopAttrib restores the OpenGL binding but not X-Plane's cached
+        // binding, so always restore through the SDK helper as well.
+        XPLMBindTexture2d(textureID, 0)
+    }
+
     private func createTexture(for atlas: Atlas) -> Bool {
         var textureID: Int32 = 0
         XPLMGenerateTextureNumbers(&textureID, 1)
         guard textureID != 0 else { return false }
 
-        glPushAttrib(GLbitfield(GL_TEXTURE_BIT))
+        let previousTextureID = currentTextureBinding()
+        restoreTextureBinding(previousTextureID)
         XPLMBindTexture2d(textureID, 0)
+        glPushAttrib(GLbitfield(GL_TEXTURE_BIT))
         glPushClientAttrib(GLbitfield(GL_CLIENT_PIXEL_STORE_BIT))
         glPixelStorei(GLenum(GL_UNPACK_ALIGNMENT), 1)
         glPixelStorei(GLenum(GL_UNPACK_ROW_LENGTH), 0)
@@ -192,6 +206,7 @@ public final class HUDTextRenderer {
         let textureError = glGetError()
         glPopClientAttrib()
         glPopAttrib()
+        restoreTextureBinding(previousTextureID)
 
         guard textureError == GLenum(GL_NO_ERROR) else {
             var failedTextureID = textureID
@@ -322,8 +337,10 @@ public final class HUDTextRenderer {
 
     private func upload(pixels: [UInt8], width: Int, height: Int, x: Int, y: Int, atlas: Atlas) -> Bool {
         guard atlas.textureID != 0 else { return false }
-        glPushAttrib(GLbitfield(GL_TEXTURE_BIT))
+        let previousTextureID = currentTextureBinding()
+        restoreTextureBinding(previousTextureID)
         XPLMBindTexture2d(atlas.textureID, 0)
+        glPushAttrib(GLbitfield(GL_TEXTURE_BIT))
         glPushClientAttrib(GLbitfield(GL_CLIENT_PIXEL_STORE_BIT))
         glPixelStorei(GLenum(GL_UNPACK_ALIGNMENT), 1)
         glPixelStorei(GLenum(GL_UNPACK_ROW_LENGTH), 0)
@@ -343,6 +360,7 @@ public final class HUDTextRenderer {
         let uploadError = glGetError()
         glPopClientAttrib()
         glPopAttrib()
+        restoreTextureBinding(previousTextureID)
         return uploadError == GLenum(GL_NO_ERROR)
     }
 
@@ -352,11 +370,14 @@ public final class HUDTextRenderer {
             return false
         }
 
+        let previousTextureID = currentTextureBinding()
+        restoreTextureBinding(previousTextureID)
+        XPLMBindTexture2d(firstAtlas.textureID, 0)
         // Lua and other plug-ins may have just drawn with texturing disabled.
         // X-Plane keeps an internal cache of this state, so use the SDK helper
         // instead of relying on a raw glEnable() alone.
-        XPLMSetGraphicsState(0, 1, 0, 1, 1, 0, 0)
         glPushAttrib(GLbitfield(GL_ENABLE_BIT | GL_TEXTURE_BIT | GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT))
+        XPLMSetGraphicsState(0, 1, 0, 1, 1, 0, 0)
         // Culling is not part of XPLMSetGraphicsState.  Keep the screen-space
         // quads visible even when the simulator left face culling enabled.
         glDisable(GLenum(GL_CULL_FACE))
@@ -369,7 +390,6 @@ public final class HUDTextRenderer {
         glColor4f(currentColor[0], currentColor[1], currentColor[2], currentColor[3])
         glTexEnvi(GLenum(GL_TEXTURE_ENV), GLenum(GL_TEXTURE_ENV_MODE), GLint(GL_MODULATE))
 
-        XPLMBindTexture2d(firstAtlas.textureID, 0)
         glBegin(GLenum(GL_QUADS))
         for (preparedGlyph, penX) in prepared {
             let record = preparedGlyph.record
@@ -394,6 +414,8 @@ public final class HUDTextRenderer {
         glEnd()
         let drawError = glGetError()
         glPopAttrib()
+        restoreTextureBinding(previousTextureID)
+        XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0)
         return drawError == GLenum(GL_NO_ERROR)
     }
 
