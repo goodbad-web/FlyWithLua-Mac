@@ -38,8 +38,15 @@ using threejfps::Mode;
 
 extern "C" void flywithlua_update_3jfps_snapshot(const char* jsonPayload);
 extern "C" void flywithlua_show_3jfps_settings(void);
+extern "C" int flywithlua_draw_hidpi_text(int x,
+                                          int y,
+                                          const char* text,
+                                          float logicalSize,
+                                          const char* family,
+                                          int weight);
 
 constexpr double kSnapshotIntervalSeconds = 0.2;
+constexpr double kHUDDisplayIntervalSeconds = 0.5;
 constexpr double kMinimumDeltaSeconds = 1.0 / 240.0;
 constexpr double kMaximumDeltaSeconds = 1.0;
 
@@ -190,6 +197,25 @@ std::string numberString(double value) {
     return stream.str();
 }
 
+std::string hudNumberString(double value, int precision, bool trimTrailingZeros) {
+    if (!std::isfinite(value)) {
+        return "--";
+    }
+
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(std::max(0, precision)) << value;
+    std::string result = stream.str();
+    if (trimTrailingZeros && precision > 0) {
+        while (!result.empty() && result.back() == '0') {
+            result.pop_back();
+        }
+        if (!result.empty() && result.back() == '.') {
+            result.pop_back();
+        }
+    }
+    return result;
+}
+
 double readDataRef(NumericDataRef& dataRef) {
     if (dataRef.ref == nullptr) {
         return 0.0;
@@ -254,6 +280,7 @@ public:
         screenshotOverride_ = false;
         screenshotFrames_ = 0;
         configureFromLua(state, tableIndex, true);
+        resetHUDDisplay();
         active_ = true;
         publishSnapshot();
     }
@@ -284,6 +311,7 @@ public:
         snapshotDirty_ = true;
         screenshotOverride_ = false;
         screenshotFrames_ = 0;
+        resetHUDDisplay();
     }
 
     void step(float deltaSeconds) {
@@ -334,6 +362,7 @@ public:
         sample.cpuTimeAvailable = hasCPU;
         sample.gpuTimeAvailable = hasGPU;
         controller_.update(sample);
+        updateHUDDisplay(delta);
 
         applyControllerOutputs();
         applyIndependentRules();
@@ -410,21 +439,26 @@ public:
         const float textColor[3] = {1.0f, 1.0f, 1.0f};
         const int textX = x + 12;
         const int topY = y + boxHeight - lineHeight;
-        drawText(textColor, textX, topY, modeLabel() + "  " + profileLabel());
+        drawText(textColor, textX, topY, modeLabel() + "  " + profileLabel(), alpha,
+                 "sf_pro_text", 600);
         drawText(textColor, textX, topY - lineHeight,
-                 label("FPS", "FPS") + " " + numberString(controller_.state().fps) +
-                 "  " + label("Target", "目標") + " " + numberString(controller_.state().targetFPS));
+                 label("FPS", "FPS") + " " + hudNumberString(hudFPS_, 1, false) +
+                 "  " + label("Target", "目標") + " " + hudNumberString(controller_.state().targetFPS, 0, true),
+                 alpha, "sf_mono", 600);
 
         if (showDetails) {
             drawText(textColor, textX, topY - lineHeight * 2,
-                     label("CPU", "CPU") + " " + numberString(controller_.state().cpuMilliseconds) +
-                     "ms  " + label("GPU", "GPU") + " " + numberString(controller_.state().gpuMilliseconds) + "ms");
+                     label("CPU", "CPU") + " " + hudNumberString(hudCPUMilliseconds_, 1, false) +
+                     "ms  " + label("GPU", "GPU") + " " + hudNumberString(hudGPUMilliseconds_, 1, false) + "ms",
+                     alpha, "sf_mono", 400);
             drawText(textColor, textX, topY - lineHeight * 3,
-                     label("Quality", "品質") + " " + qualitySummary());
+                     label("Quality", "品質") + " " + qualitySummary(),
+                     alpha, "sf_mono", 400);
         }
 
         if (hudEditing_) {
-            drawText(indicatorColor, textX, y - 2, label("EDIT HUD", "HUD編集"));
+            drawText(indicatorColor, textX, y - 2, label("EDIT HUD", "HUD編集"),
+                     indicatorColor[3], "sf_pro_text", 600);
         }
     }
 
@@ -786,6 +820,53 @@ private:
         return controller_.state().features[static_cast<size_t>(id)].currentValue;
     }
 
+    void resetHUDDisplay() {
+        hudDisplayElapsed_ = 0.0;
+        hudDisplayFrameCount_ = 0.0;
+        hudDisplayCPUTotal_ = 0.0;
+        hudDisplayGPUTotal_ = 0.0;
+        hudFPS_ = 0.0;
+        hudCPUMilliseconds_ = 0.0;
+        hudGPUMilliseconds_ = 0.0;
+        hudFeatureValues_.fill(0.0);
+        hudDisplayInitialized_ = false;
+    }
+
+    void updateHUDDisplay(double deltaSeconds) {
+        const auto& state = controller_.state();
+        if (!hudDisplayInitialized_) {
+            hudFPS_ = state.fps;
+            hudCPUMilliseconds_ = state.cpuMilliseconds;
+            hudGPUMilliseconds_ = state.gpuMilliseconds;
+            for (size_t index = 0; index < threejfps::kFeatureCount; ++index) {
+                hudFeatureValues_[index] = state.features[index].currentValue;
+            }
+            hudDisplayInitialized_ = true;
+        }
+
+        hudDisplayElapsed_ += deltaSeconds;
+        hudDisplayFrameCount_ += 1.0;
+        hudDisplayCPUTotal_ += state.cpuMilliseconds;
+        hudDisplayGPUTotal_ += state.gpuMilliseconds;
+        if (hudDisplayElapsed_ < kHUDDisplayIntervalSeconds) {
+            return;
+        }
+
+        const double elapsed = std::max(kMinimumDeltaSeconds, hudDisplayElapsed_);
+        const double frameCount = std::max(1.0, hudDisplayFrameCount_);
+        hudFPS_ = frameCount / elapsed;
+        hudCPUMilliseconds_ = hudDisplayCPUTotal_ / frameCount;
+        hudGPUMilliseconds_ = hudDisplayGPUTotal_ / frameCount;
+        for (size_t index = 0; index < threejfps::kFeatureCount; ++index) {
+            hudFeatureValues_[index] = state.features[index].currentValue;
+        }
+
+        hudDisplayElapsed_ = 0.0;
+        hudDisplayFrameCount_ = 0.0;
+        hudDisplayCPUTotal_ = 0.0;
+        hudDisplayGPUTotal_ = 0.0;
+    }
+
     double featureQuality(FeatureId id) const {
         const auto& config = controller_.config().features[static_cast<size_t>(id)];
         const auto& state = controller_.state();
@@ -1121,20 +1202,36 @@ private:
     std::string qualitySummary() const {
         const auto& state = controller_.state();
         std::ostringstream result;
-        result << label("LOD", "LOD") << ' ' << std::setprecision(2) << featureValue(FeatureId::LOD)
-               << "  " << label("SHD", "影") << ' ' << featureValue(FeatureId::Shadows);
+        result << label("LOD", "LOD") << ' '
+               << hudNumberString(hudFeatureValues_[static_cast<size_t>(FeatureId::LOD)], 1, true)
+               << "  " << label("SHD", "影") << ' '
+               << hudNumberString(hudFeatureValues_[static_cast<size_t>(FeatureId::Shadows)], 0, true);
         if (state.features[static_cast<size_t>(FeatureId::Clouds)].enabled) {
-            result << "  " << label("CLD", "雲") << ' ' << featureValue(FeatureId::Clouds);
+            result << "  " << label("CLD", "雲") << ' '
+                   << hudNumberString(hudFeatureValues_[static_cast<size_t>(FeatureId::Clouds)], 1, true);
         }
         if (state.features[static_cast<size_t>(FeatureId::FSR)].enabled) {
-            result << "  FSR " << featureValue(FeatureId::FSR);
+            result << "  FSR "
+                   << hudNumberString(hudFeatureValues_[static_cast<size_t>(FeatureId::FSR)], 0, true);
         }
         return result.str();
     }
 
-    void drawText(const float* color, int x, int y, const std::string& text) const {
+    void drawText(const float* color,
+                  int x,
+                  int y,
+                  const std::string& text,
+                  float alpha,
+                  const char* family,
+                  int weight) const {
         std::string mutableText = text;
         float rgb[3] = {color[0], color[1], color[2]};
+        const float drawAlpha = std::max(0.0f, std::min(1.0f, alpha));
+        const float logicalSize = static_cast<float>(std::max(12, hudLineHeight_));
+        glColor4f(rgb[0], rgb[1], rgb[2], drawAlpha);
+        if (flywithlua_draw_hidpi_text(x, y, text.c_str(), logicalSize, family, weight) != 0) {
+            return;
+        }
         XPLMDrawString(rgb, x, y, mutableText.data(), nullptr, xplmFont_Basic);
     }
 
@@ -1180,6 +1277,15 @@ private:
     int hudLineHeight_ = 16;
     bool hudPositionIsAbsolute_ = false;
     bool hudEditing_ = false;
+    bool hudDisplayInitialized_ = false;
+    double hudDisplayElapsed_ = 0.0;
+    double hudDisplayFrameCount_ = 0.0;
+    double hudDisplayCPUTotal_ = 0.0;
+    double hudDisplayGPUTotal_ = 0.0;
+    double hudFPS_ = 0.0;
+    double hudCPUMilliseconds_ = 0.0;
+    double hudGPUMilliseconds_ = 0.0;
+    std::array<double, threejfps::kFeatureCount> hudFeatureValues_{};
     bool dragging_ = false;
     bool inputCaptured_ = false;
     int dragOffsetX_ = 0;

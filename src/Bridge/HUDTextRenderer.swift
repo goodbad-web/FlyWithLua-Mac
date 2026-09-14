@@ -2,7 +2,7 @@ import CoreGraphics
 import CoreText
 import Foundation
 
-/// High-DPI text renderer used exclusively by HUD-G1000.
+/// Shared high-DPI text renderer used by in-sim overlays.
 ///
 /// X-Plane exposes drawing coordinates in boxels.  This renderer keeps those
 /// coordinates unchanged and rasterizes the glyphs at a higher backing
@@ -128,7 +128,11 @@ public final class HUDTextRenderer {
             penX += glyph.advance
         }
 
-        guard !prepared.isEmpty else { return true }
+        // A non-empty string must not report success when every glyph failed
+        // to rasterize or upload.  The caller uses false to switch to the
+        // legacy XPLM font path, which keeps the HUD visible on a graphics
+        // context where texture allocation is unavailable.
+        guard !prepared.isEmpty else { return false }
         return drawPrepared(prepared, x: x, y: y)
     }
 
@@ -347,7 +351,18 @@ public final class HUDTextRenderer {
         guard let firstAtlas = prepared.first?.0.atlas, firstAtlas.textureID != 0 else {
             return false
         }
+
+        // Lua and other plug-ins may have just drawn with texturing disabled.
+        // X-Plane keeps an internal cache of this state, so use the SDK helper
+        // instead of relying on a raw glEnable() alone.
+        XPLMSetGraphicsState(0, 1, 0, 1, 1, 0, 0)
         glPushAttrib(GLbitfield(GL_ENABLE_BIT | GL_TEXTURE_BIT | GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT))
+        // Culling is not part of XPLMSetGraphicsState.  Keep the screen-space
+        // quads visible even when the simulator left face culling enabled.
+        glDisable(GLenum(GL_CULL_FACE))
+        // Keep these explicit as well: X-Plane's state cache can legitimately
+        // skip a redundant SDK call while another drawing path has restored
+        // the underlying OpenGL state through an attribute stack.
         glEnable(GLenum(GL_TEXTURE_2D))
         glEnable(GLenum(GL_BLEND))
         glBlendFunc(GLenum(GL_SRC_ALPHA), GLenum(GL_ONE_MINUS_SRC_ALPHA))

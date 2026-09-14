@@ -47,6 +47,33 @@ public func flywithlua_show_3jfps_settings() {
     XPWindowManager.shared.show3jFPSSettings()
 }
 
+/// C ABI used by native in-sim overlays that need the same CoreText/OpenGL
+/// renderer as the Lua HUD path.
+@_cdecl("flywithlua_draw_hidpi_text")
+public func flywithlua_draw_hidpi_text(_ x: Int32,
+                                       _ y: Int32,
+                                       _ text: UnsafePointer<CChar>?,
+                                       _ logicalSize: Float,
+                                       _ family: UnsafePointer<CChar>?,
+                                       _ weight: Int32) -> Int32 {
+    guard let text,
+          logicalSize.isFinite,
+          logicalSize > 0 else {
+        return 0
+    }
+
+    let familyName = family.map { String(cString: $0) } ?? "sf_pro_text"
+    let rendered = HUDTextRenderer.shared.draw(
+        text: String(cString: text),
+        x: CGFloat(x),
+        y: CGFloat(y),
+        logicalSize: CGFloat(logicalSize),
+        family: familyName,
+        weight: Int(weight)
+    )
+    return rendered ? 1 : 0
+}
+
 @_cdecl("flywithlua_update_3jfps_snapshot")
 public func flywithlua_update_3jfps_snapshot(_ jsonPayload: UnsafePointer<CChar>?) {
     guard let jsonPayload else { return }
@@ -367,8 +394,8 @@ public func register_swift_bridge(L: OpaquePointer?) {
     lua_pushcclosure(L, l_measure_string, 0)
     lua_setfield(L, -2, "measure_string")
 
-    // Register HUD-only high-DPI text functions.  The legacy functions above
-    // intentionally remain unchanged for existing Lua scripts.
+    // Register high-DPI text functions. The legacy functions above remain
+    // unchanged for existing Lua scripts.
     lua_pushcclosure(L, l_draw_hidpi_string, 0)
     lua_setfield(L, -2, "draw_hidpi_string")
 

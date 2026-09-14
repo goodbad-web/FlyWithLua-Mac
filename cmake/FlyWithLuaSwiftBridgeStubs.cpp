@@ -487,6 +487,32 @@ static void registerBridgeFunction(lua_State* state,
 
 } // namespace
 
+// The portable CMake runtime has no CoreText renderer. Native overlays still
+// link against this ABI and deliberately fall back to the existing XPLM font
+// IDs when Swift is not part of the build.
+extern "C" int flywithlua_draw_hidpi_text(int x,
+                                          int y,
+                                          const char* text,
+                                          float logicalSize,
+                                          const char* family,
+                                          int weight) {
+    (void)logicalSize;
+    (void)weight;
+    if (text == nullptr) {
+        return 0;
+    }
+
+    float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    glGetFloatv(GL_CURRENT_COLOR, color);
+    XPLMDrawString(color,
+                   x,
+                   y,
+                   const_cast<char*>(text),
+                   nullptr,
+                   fontIDForHiDPIFamily(family));
+    return 1;
+}
+
 // These callbacks update the SwiftUI state in the XcodeGen build. CMake has
 // no SwiftUI surface, so keeping them as no-ops preserves the ABI without
 // making the native runtime depend on a UI implementation.
