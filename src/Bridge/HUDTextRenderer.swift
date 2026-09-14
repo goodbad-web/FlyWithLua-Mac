@@ -57,6 +57,11 @@ public final class HUDTextRenderer {
         let atlas: Atlas
     }
 
+    private struct TextureState {
+        let activeTexture: GLenum
+        let textureID: Int32
+    }
+
     private let rasterScale: CGFloat = 2.0
     private let maximumLogicalFontSize: CGFloat = 256.0
     private let maximumAtlases = 8
@@ -164,16 +169,28 @@ public final class HUDTextRenderer {
         return created
     }
 
-    private func currentTextureBinding() -> Int32 {
+    private func currentTextureState() -> TextureState {
+        var activeTexture: Int32 = Int32(GL_TEXTURE0)
+        glGetIntegerv(GLenum(GL_ACTIVE_TEXTURE), &activeTexture)
+        glActiveTexture(GLenum(GL_TEXTURE0))
         var textureID: Int32 = 0
         glGetIntegerv(GLenum(GL_TEXTURE_BINDING_2D), &textureID)
-        return textureID
+        glActiveTexture(GLenum(activeTexture))
+        return TextureState(activeTexture: GLenum(activeTexture), textureID: textureID)
     }
 
-    private func restoreTextureBinding(_ textureID: Int32) {
-        // glPopAttrib restores the OpenGL binding but not X-Plane's cached
-        // binding, so always restore through the SDK helper as well.
+    private func bindTextureOnUnitZero(_ textureID: Int32) {
+        glActiveTexture(GLenum(GL_TEXTURE0))
         XPLMBindTexture2d(textureID, 0)
+    }
+
+    private func restoreTextureState(_ state: TextureState) {
+        // glPopAttrib restores the OpenGL binding but not X-Plane's cached
+        // binding, so always restore through the SDK helper as well. X-Plane's
+        // helper operates on texture unit zero; restore the caller's active
+        // unit after updating that cached binding.
+        bindTextureOnUnitZero(state.textureID)
+        glActiveTexture(state.activeTexture)
     }
 
     private func createTexture(for atlas: Atlas) -> Bool {
@@ -181,9 +198,8 @@ public final class HUDTextRenderer {
         XPLMGenerateTextureNumbers(&textureID, 1)
         guard textureID != 0 else { return false }
 
-        let previousTextureID = currentTextureBinding()
-        restoreTextureBinding(previousTextureID)
-        XPLMBindTexture2d(textureID, 0)
+        let previousTextureState = currentTextureState()
+        bindTextureOnUnitZero(textureID)
         glPushAttrib(GLbitfield(GL_TEXTURE_BIT))
         glPushClientAttrib(GLbitfield(GL_CLIENT_PIXEL_STORE_BIT))
         glPixelStorei(GLenum(GL_UNPACK_ALIGNMENT), 1)
@@ -206,7 +222,7 @@ public final class HUDTextRenderer {
         let textureError = glGetError()
         glPopClientAttrib()
         glPopAttrib()
-        restoreTextureBinding(previousTextureID)
+        restoreTextureState(previousTextureState)
 
         guard textureError == GLenum(GL_NO_ERROR) else {
             var failedTextureID = textureID
@@ -337,9 +353,8 @@ public final class HUDTextRenderer {
 
     private func upload(pixels: [UInt8], width: Int, height: Int, x: Int, y: Int, atlas: Atlas) -> Bool {
         guard atlas.textureID != 0 else { return false }
-        let previousTextureID = currentTextureBinding()
-        restoreTextureBinding(previousTextureID)
-        XPLMBindTexture2d(atlas.textureID, 0)
+        let previousTextureState = currentTextureState()
+        bindTextureOnUnitZero(atlas.textureID)
         glPushAttrib(GLbitfield(GL_TEXTURE_BIT))
         glPushClientAttrib(GLbitfield(GL_CLIENT_PIXEL_STORE_BIT))
         glPixelStorei(GLenum(GL_UNPACK_ALIGNMENT), 1)
@@ -360,7 +375,7 @@ public final class HUDTextRenderer {
         let uploadError = glGetError()
         glPopClientAttrib()
         glPopAttrib()
-        restoreTextureBinding(previousTextureID)
+        restoreTextureState(previousTextureState)
         return uploadError == GLenum(GL_NO_ERROR)
     }
 
@@ -370,9 +385,8 @@ public final class HUDTextRenderer {
             return false
         }
 
-        let previousTextureID = currentTextureBinding()
-        restoreTextureBinding(previousTextureID)
-        XPLMBindTexture2d(firstAtlas.textureID, 0)
+        let previousTextureState = currentTextureState()
+        bindTextureOnUnitZero(firstAtlas.textureID)
         // Lua and other plug-ins may have just drawn with texturing disabled.
         // X-Plane keeps an internal cache of this state, so use the SDK helper
         // instead of relying on a raw glEnable() alone.
@@ -414,7 +428,7 @@ public final class HUDTextRenderer {
         glEnd()
         let drawError = glGetError()
         glPopAttrib()
-        restoreTextureBinding(previousTextureID)
+        restoreTextureState(previousTextureState)
         XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0)
         return drawError == GLenum(GL_NO_ERROR)
     }

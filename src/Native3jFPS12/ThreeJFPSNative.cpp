@@ -413,9 +413,7 @@ public:
             return;
         }
 
-        const int detailLines = showDetails ? 4 : 2;
-        const int graphLines = showGraph_ ? graphRowCount() : 0;
-        const int boxHeight = std::max(2, std::max(detailLines, graphLines) * lineHeight + 8);
+        const int boxHeight = hudBoxHeight(showDetails);
         const int boxWidth = hudBoxWidth(showDetails);
         const int x = resolveHUDX(screenWidth, boxWidth);
         const int y = resolveHUDY(screenHeight, boxHeight);
@@ -488,8 +486,9 @@ public:
         const int height = std::max(1, screenTop - screenBottom);
         const int localX = x - screenLeft;
         const int localY = y - screenBottom;
-        const int boxHeight = (hudEditing_ ? 5 : 4) * std::max(12, hudLineHeight_) + 8;
-        const int boxWidth = hudBoxWidth(true);
+        const bool showDetails = hudEditing_ || showDetailsPreference_;
+        const int boxHeight = hudBoxHeight(showDetails);
+        const int boxWidth = hudBoxWidth(showDetails);
         const bool inside = isInsideHUD(localX, localY, width, height, boxWidth, boxHeight);
 
         if (mouseStatus == xplm_MouseDown) {
@@ -541,7 +540,7 @@ public:
         const int height = std::max(1, screenTop - screenBottom);
         const int localX = x - screenLeft;
         const int localY = y - screenBottom;
-        const int boxHeight = 5 * std::max(12, hudLineHeight_) + 8;
+        const int boxHeight = hudBoxHeight(true);
         if (!isInsideHUD(localX, localY, width, height, hudBoxWidth(true), boxHeight)) {
             return 0;
         }
@@ -1335,6 +1334,13 @@ private:
                         std::min(kHUDGraphMaximumWidth, derivedWidth));
     }
 
+    int hudBoxHeight(bool showDetails) const {
+        const int lineHeight = std::max(12, hudLineHeight_);
+        const int detailLines = showDetails ? 4 : 2;
+        const int graphLines = showGraph_ ? graphRowCount() : 0;
+        return std::max(2, std::max(detailLines, graphLines) * lineHeight + 8);
+    }
+
     bool qualityMarkerVisible() const {
         if (controller_.state().mode == Mode::Off) return false;
         for (const auto& feature : controller_.state().features) {
@@ -1630,9 +1636,10 @@ private:
     }
 
     bool isInsideHUD(int localX, int localY, int screenWidth, int screenHeight) const {
-        const int boxHeight = 4 * std::max(12, hudLineHeight_) + 8;
+        const bool showDetails = hudEditing_ || showDetailsPreference_;
+        const int boxHeight = hudBoxHeight(showDetails);
         return isInsideHUD(localX, localY, screenWidth, screenHeight,
-                           hudBoxWidth(true), boxHeight);
+                           hudBoxWidth(showDetails), boxHeight);
     }
 
     bool isInsideHUD(int localX, int localY, int screenWidth, int screenHeight,
