@@ -365,6 +365,14 @@ static XPLMFontID fontIDForName(const char* name) {
     return static_cast<XPLMFontID>(xplmFont_Basic);
 }
 
+static XPLMFontID fontIDForHiDPIFamily(const char* name) {
+    const std::string family = lowerString(name);
+    if (family == "sf_mono" || family == "sfmono" || family == "sf mono") {
+        return static_cast<XPLMFontID>(xplmFont_Basic);
+    }
+    return static_cast<XPLMFontID>(xplmFont_Proportional);
+}
+
 static int luaDrawString(lua_State* state) {
     const char* text = lua_tolstring(state, 3, nullptr);
     if (text == nullptr) {
@@ -423,6 +431,53 @@ static int luaMeasureString(lua_State* state) {
     return 1;
 }
 
+// The portable CMake runtime has no CoreText renderer.  Keep the new HUD API
+// available there and deliberately fall back to the existing XPLM fonts.
+static int luaDrawHiDPIString(lua_State* state) {
+    const char* text = lua_tolstring(state, 3, nullptr);
+    if (text == nullptr || !lua_isnumber(state, 1) || !lua_isnumber(state, 2)) {
+        lua_pushboolean(state, 0);
+        return 1;
+    }
+
+    const char* family = nullptr;
+    if (lua_gettop(state) >= 5) {
+        family = lua_tolstring(state, 5, nullptr);
+    }
+
+    float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    glGetFloatv(GL_CURRENT_COLOR, color);
+    XPLMDrawString(color,
+                   static_cast<int>(lua_tonumber(state, 1)),
+                   static_cast<int>(lua_tonumber(state, 2)),
+                   const_cast<char*>(text),
+                   nullptr,
+                   fontIDForHiDPIFamily(family));
+    lua_pushboolean(state, 1);
+    return 1;
+}
+
+static int luaMeasureHiDPIString(lua_State* state) {
+    size_t textLength = 0;
+    const char* text = lua_tolstring(state, 1, &textLength);
+    if (text == nullptr || !lua_isnumber(state, 2) ||
+        textLength > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        lua_pushnil(state);
+        return 1;
+    }
+
+    const char* family = nullptr;
+    if (lua_gettop(state) >= 3) {
+        family = lua_tolstring(state, 3, nullptr);
+    }
+    const float width = XPLMMeasureString(
+        fontIDForHiDPIFamily(family),
+        text,
+        static_cast<int>(textLength));
+    lua_pushnumber(state, width);
+    return 1;
+}
+
 static void registerBridgeFunction(lua_State* state,
                                    const char* name,
                                    lua_CFunction function) {
@@ -450,13 +505,15 @@ extern "C" void register_swift_bridge(lua_State* state) {
         return;
     }
 
-    lua_createtable(state, 0, 6);
+    lua_createtable(state, 0, 8);
     registerBridgeFunction(state, "get_dataref", luaGetDataRef);
     registerBridgeFunction(state, "set_dataref", luaSetDataRef);
     registerBridgeFunction(state, "log_msg", luaLogMessage);
     registerBridgeFunction(state, "command_once", luaCommandOnce);
     registerBridgeFunction(state, "draw_string", luaDrawString);
     registerBridgeFunction(state, "measure_string", luaMeasureString);
+    registerBridgeFunction(state, "draw_hidpi_string", luaDrawHiDPIString);
+    registerBridgeFunction(state, "measure_hidpi_string", luaMeasureHiDPIString);
     lua_setfield(state, LUA_GLOBALSINDEX, "mac_native");
 
     XPLMDebugString("FlyWithLua-Mac: portable CMake 'mac_native' module registered in Lua.\n");

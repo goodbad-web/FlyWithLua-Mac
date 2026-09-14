@@ -268,6 +268,75 @@ public func l_measure_string(L: OpaquePointer?) -> Int32 {
     return 1
 }
 
+private func flywithluaTextArgument(from L: OpaquePointer?, index: Int32) -> String? {
+    guard let cString = lua_tolstring(L, index, nil) else {
+        return nil
+    }
+    return String(cString: cString)
+}
+
+private func flywithluaTextSize(from L: OpaquePointer?, index: Int32) -> CGFloat? {
+    guard lua_gettop(L) >= index, lua_isnumber(L, index) != 0 else {
+        return nil
+    }
+    let value = CGFloat(lua_tonumber(L, index))
+    return value.isFinite && value > 0 ? value : nil
+}
+
+private func flywithluaTextWeight(from L: OpaquePointer?, index: Int32) -> Int {
+    guard lua_gettop(L) >= index, lua_isnumber(L, index) != 0 else {
+        return 400
+    }
+    let value = Int(lua_tointeger(L, index))
+    return min(max(value, 100), 900)
+}
+
+@_cdecl("l_draw_hidpi_string")
+public func l_draw_hidpi_string(L: OpaquePointer?) -> Int32 {
+    guard let text = flywithluaTextArgument(from: L, index: 3),
+          let logicalSize = flywithluaTextSize(from: L, index: 4) else {
+        lua_pushboolean(L, 0)
+        return 1
+    }
+
+    let family = flywithluaTextArgument(from: L, index: 5) ?? "sf_pro_text"
+    let weight = flywithluaTextWeight(from: L, index: 6)
+    let success = HUDTextRenderer.shared.draw(
+        text: text,
+        x: CGFloat(lua_tonumber(L, 1)),
+        y: CGFloat(lua_tonumber(L, 2)),
+        logicalSize: logicalSize,
+        family: family,
+        weight: weight
+    )
+    lua_pushboolean(L, success ? 1 : 0)
+    return 1
+}
+
+@_cdecl("l_measure_hidpi_string")
+public func l_measure_hidpi_string(L: OpaquePointer?) -> Int32 {
+    guard let text = flywithluaTextArgument(from: L, index: 1),
+          let logicalSize = flywithluaTextSize(from: L, index: 2) else {
+        lua_pushnil(L)
+        return 1
+    }
+
+    let family = flywithluaTextArgument(from: L, index: 3) ?? "sf_pro_text"
+    let weight = flywithluaTextWeight(from: L, index: 4)
+    guard let width = HUDTextRenderer.shared.measure(
+        text: text,
+        logicalSize: logicalSize,
+        family: family,
+        weight: weight
+    ), width.isFinite else {
+        lua_pushnil(L)
+        return 1
+    }
+
+    lua_pushnumber(L, Double(width))
+    return 1
+}
+
 /// Registers the Swift-based module into the Lua state.
 @_cdecl("register_swift_bridge")
 public func register_swift_bridge(L: OpaquePointer?) {
@@ -297,6 +366,14 @@ public func register_swift_bridge(L: OpaquePointer?) {
     // Register measure_string
     lua_pushcclosure(L, l_measure_string, 0)
     lua_setfield(L, -2, "measure_string")
+
+    // Register HUD-only high-DPI text functions.  The legacy functions above
+    // intentionally remain unchanged for existing Lua scripts.
+    lua_pushcclosure(L, l_draw_hidpi_string, 0)
+    lua_setfield(L, -2, "draw_hidpi_string")
+
+    lua_pushcclosure(L, l_measure_hidpi_string, 0)
+    lua_setfield(L, -2, "measure_hidpi_string")
     
     // Set as global 'mac_native'
     // LUA_GLOBALSINDEX is -10002 in Lua 5.1/LuaJIT

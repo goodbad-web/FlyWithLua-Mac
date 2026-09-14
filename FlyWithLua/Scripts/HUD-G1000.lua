@@ -170,6 +170,9 @@ hud.state = {
         active = nil,
         clear_started = nil,
     },
+    text_backend = {
+        disabled = false,
+    },
     logged = {},
 }
 
@@ -931,17 +934,6 @@ function hud.get_layout(screen_width, screen_height)
     }
 end
 
-local function text_width(text, font_size)
-    if type(measure_string) == "function" then
-        local font_name = font_size == 10 and "Helvetica_10"
-            or font_size == 18 and "Helvetica_18"
-            or "Helvetica_12"
-        local ok, width = pcall(measure_string, tostring(text), font_name)
-        if ok and is_finite_number(width) then return width end
-    end
-    return #tostring(text) * font_size * 0.55
-end
-
 local function set_color(color, alpha)
     if type(graphics.set_color) ~= "function" then return end
     local opacity = configured_number("opacity", 0.75, 0, 1)
@@ -954,26 +946,113 @@ local function font_for(font_size, scale)
     return font_size
 end
 
-local function draw_text(font_size, x, y, text, color, layout)
-    local actual_font = font_for(font_size, layout.scale)
+local function native_text_backend()
+    if hud.state.text_backend.disabled then return nil end
+    if type(mac_native) ~= "table"
+        or type(mac_native.draw_hidpi_string) ~= "function"
+        or type(mac_native.measure_hidpi_string) ~= "function" then
+        return nil
+    end
+    return mac_native
+end
+
+local function disable_native_text(reason)
+    if hud.state.text_backend.disabled then return end
+    hud.state.text_backend.disabled = true
+    log_once("hidpi_text", "High-DPI text renderer unavailable: " .. tostring(reason or "unknown error"))
+end
+
+local function native_text_style(style)
+    if style == "value" or style == "numeric" then
+        return "sf_mono", 600
+    end
+    if style == "emphasis" or style == "status" then
+        return "sf_pro_text", 600
+    end
+    return "sf_pro_text", 400
+end
+
+local function legacy_text_width(text, font_size, layout)
+    if type(measure_string) == "function" then
+        local actual_font = font_for(font_size, layout and layout.scale or 1)
+        local font_name = actual_font == 10 and "Helvetica_10"
+            or actual_font == 18 and "Helvetica_18"
+            or "Helvetica_12"
+        local ok, width = pcall(measure_string, tostring(text), font_name)
+        if ok and is_finite_number(width) then return width end
+    end
+    return #tostring(text) * font_size * 0.55
+end
+
+local function text_width(text, font_size, layout, style)
+    local native = native_text_backend()
+    if native ~= nil and layout ~= nil then
+        local family, weight = native_text_style(style)
+        local requested_size = font_size * layout.scale
+        local ok, width = pcall(
+            native.measure_hidpi_string,
+            tostring(text),
+            requested_size,
+            family,
+            weight
+        )
+        if ok and is_finite_number(width) then
+            return width
+        end
+        if not ok then
+            disable_native_text(width)
+        else
+            disable_native_text("measure returned no width")
+        end
+    end
+    return legacy_text_width(text, font_size, layout)
+end
+
+local function draw_legacy_text(actual_font, x, y, text)
+    if actual_font == 10 then
+        draw_string_Helvetica_10(x, y, text)
+    elseif actual_font == 18 then
+        draw_string_Helvetica_18(x, y, text)
+    else
+        draw_string_Helvetica_12(x, y, text)
+    end
+end
+
+local function draw_text(font_size, x, y, text, color, layout, style)
     set_color(color or COLORS.info, 1)
     local draw_x = math.floor(layout.x + x * layout.scale)
     local draw_y = math.floor(layout.y + y * layout.scale)
     text = tostring(text or "")
-    if actual_font == 10 then
-        draw_string_Helvetica_10(draw_x, draw_y, text)
-    elseif actual_font == 18 then
-        draw_string_Helvetica_18(draw_x, draw_y, text)
-    else
-        draw_string_Helvetica_12(draw_x, draw_y, text)
+
+    local native = native_text_backend()
+    if native ~= nil then
+        local family, weight = native_text_style(style)
+        local ok, rendered = pcall(
+            native.draw_hidpi_string,
+            draw_x,
+            draw_y,
+            text,
+            font_size * layout.scale,
+            family,
+            weight
+        )
+        if ok and rendered == true then
+            return
+        end
+        if not ok then
+            disable_native_text(rendered)
+        elseif rendered ~= true then
+            disable_native_text("draw returned false")
+        end
     end
+
+    draw_legacy_text(font_for(font_size, layout.scale), draw_x, draw_y, text)
 end
 
-local function draw_centered(font_size, x, y, width, text, color, layout)
-    local actual_font = font_for(font_size, layout.scale)
-    local measured = text_width(text, actual_font)
+local function draw_centered(font_size, x, y, width, text, color, layout, style)
+    local measured = text_width(text, font_size, layout, style)
     local centered_x = x + (width - measured / layout.scale) * 0.5
-    draw_text(font_size, centered_x, y, text, color, layout)
+    draw_text(font_size, centered_x, y, text, color, layout, style)
 end
 
 local function level_color(level)
@@ -986,11 +1065,11 @@ end
 
 local function draw_status_cell(x, y, width, top, bottom, status, layout)
     status = status or {text = "--", level = "unavailable"}
-    draw_centered(10, x, y + 27, width, top, COLORS.info, layout)
+    draw_centered(10, x, y + 27, width, top, COLORS.info, layout, "label")
     if bottom ~= nil and bottom ~= "" then
-        draw_centered(10, x, y + 15, width, bottom, COLORS.info, layout)
+        draw_centered(10, x, y + 15, width, bottom, COLORS.info, layout, "label")
     end
-    draw_centered(12, x, y + 2, width, status.text, level_color(status.level), layout)
+    draw_centered(12, x, y + 2, width, status.text, level_color(status.level), layout, "status")
 end
 
 local function localized_status(status)
@@ -1006,7 +1085,7 @@ local function localized_status(status)
 end
 
 local function draw_metric(x, y, width, label, value, format, level, layout)
-    draw_centered(12, x, y + 40, width, label, COLORS.muted, layout)
+    draw_centered(12, x, y + 40, width, label, COLORS.muted, layout, "label")
     local text = "--"
     if value ~= nil and format ~= nil then
         local ok, formatted = pcall(string.format, format, value)
@@ -1014,7 +1093,7 @@ local function draw_metric(x, y, width, label, value, format, level, layout)
     elseif type(value) == "string" then
         text = value
     end
-    draw_centered(18, x, y + 13, width, text, level_color(level or "info"), layout)
+    draw_centered(18, x, y + 13, width, text, level_color(level or "info"), layout, "value")
 end
 
 local function draw_alert_bar(snapshot, layout)
@@ -1030,14 +1109,15 @@ local function draw_alert_bar(snapshot, layout)
         layout.x + layout.width - 1,
         layout.y + layout.height - 1
     )
-    draw_text(12, 10, BASE_HEIGHT - ALERT_HEIGHT + 7, message, fill, layout)
+    draw_text(12, 10, BASE_HEIGHT - ALERT_HEIGHT + 7, message, fill, layout, "emphasis")
     if snapshot and snapshot.autopilot then
         draw_text(10, 370, BASE_HEIGHT - ALERT_HEIGHT + 8,
             l.ap .. " " .. snapshot.autopilot.text,
-            level_color(snapshot.autopilot.level), layout)
+            level_color(snapshot.autopilot.level), layout, "status")
     end
     if hud.state.edit_mode then
-        draw_text(10, BASE_WIDTH - 102, BASE_HEIGHT - ALERT_HEIGHT + 8, l.edit_mode, COLORS.caution, layout)
+        draw_text(10, BASE_WIDTH - 102, BASE_HEIGHT - ALERT_HEIGHT + 8,
+            l.edit_mode, COLORS.caution, layout, "status")
     end
 end
 

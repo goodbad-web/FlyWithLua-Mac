@@ -311,10 +311,11 @@ local function test_hud_g1000()
 		}
 	end
 
-	local function make_environment(data, draws, logs)
+	local function make_environment(data, draws, logs, native)
 		local env = new_environment()
 		local commands = {}
 		local callbacks = {}
+		local legacy_draws = native ~= nil and {} or draws
 		env.SCREEN_WIDTH = 1920
 		env.SCREEN_HIGHT = 1080
 		env.SCRIPT_DIRECTORY = tmp .. "/"
@@ -349,12 +350,42 @@ local function test_hud_g1000()
 		env.do_on_mouse_click = function(code) callbacks.mouse_click = code end
 		env.logMsg = function(message) logs[#logs + 1] = message end
 		env.measure_string = function(text) return #tostring(text) * 7 end
-		local function record(text) draws[#draws + 1] = tostring(text) end
+		local function record(text) legacy_draws[#legacy_draws + 1] = tostring(text) end
 		env.draw_string_Helvetica_10 = function(_, _, text) record(text) end
 		env.draw_string_Helvetica_12 = function(_, _, text) record(text) end
 		env.draw_string_Helvetica_18 = function(_, _, text) record(text) end
+		if native ~= nil then
+			native.draws = native.draws or {}
+			native.measures = native.measures or {}
+			env.mac_native = {
+				draw_hidpi_string = function(x, y, text, size, family, weight)
+				native.draws[#native.draws + 1] = {
+					x = x,
+					y = y,
+					text = tostring(text),
+					size = size,
+					family = family,
+					weight = weight,
+				}
+				draws[#draws + 1] = tostring(text)
+				if native.draw_result == nil then return true end
+				return native.draw_result
+			end,
+				measure_hidpi_string = function(text, size, family, weight)
+				native.measures[#native.measures + 1] = {
+					text = tostring(text),
+					size = size,
+					family = family,
+					weight = weight,
+				}
+				if native.measure_result == nil then return #tostring(text) * 7 end
+				return native.measure_result
+			end,
+			}
+		end
 		env._hud_commands = commands
 		env._hud_callbacks = callbacks
+		env._legacy_draws = legacy_draws
 		return env
 	end
 
@@ -396,6 +427,38 @@ local function test_hud_g1000()
 	assert(drew("+0100"))
 	assert(drew("3937"))
 	assert(drew("001"))
+
+	local native_draws = {}
+	local native_measures = {}
+	local native_env = make_environment(make_data(), {}, {}, {
+		draws = native_draws,
+		measures = native_measures,
+	})
+	load_in_environment(hud_path, native_env)
+	native_env.hud_g1000.update()
+	native_env.hud_g1000.draw()
+	local saw_mono_value = false
+	local saw_pro_label = false
+	for index = 1, #native_draws do
+		local call = native_draws[index]
+		if call.text == "120" and call.family == "sf_mono" and call.weight == 600 and call.size == 18 then
+			saw_mono_value = true
+		end
+		if call.text == "IAS" and call.family == "sf_pro_text" and call.weight == 400 and call.size == 12 then
+			saw_pro_label = true
+		end
+	end
+	assert(saw_mono_value)
+	assert(saw_pro_label)
+	assert(#native_measures > 0)
+	assert(#native_env._legacy_draws == 0)
+
+	local failing_native = make_environment(make_data(), {}, {}, {draw_result = false})
+	load_in_environment(hud_path, failing_native)
+	failing_native.hud_g1000.update()
+	failing_native.hud_g1000.draw()
+	assert(#failing_native._legacy_draws > 0)
+	assert(failing_native.hud_g1000.state.text_backend.disabled)
 
 	local bottom_left = env.hud_g1000.get_layout(1920, 1080)
 	assert(bottom_left.x == 18)

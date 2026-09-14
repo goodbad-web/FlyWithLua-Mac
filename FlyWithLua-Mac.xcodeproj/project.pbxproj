@@ -20,6 +20,7 @@
 		18B40CD57C2A18A8BA882D3F /* buffer.c in Sources */ = {isa = PBXBuildFile; fileRef = 18A745B0EB50F0BFE088492E /* buffer.c */; };
 		1A9E0D969D84F286C051F462 /* XPWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E9C47048ED540143FACB4E /* XPWindowManager.swift */; };
 		1B598177508E416B66CE3131 /* AsyncScriptManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB8616C83CB745E814E2C20A /* AsyncScriptManager.swift */; };
+		1C9A7DD3829AE0FB19B2D75D /* HUDTextRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816E404CF2877EEEFFD84D42 /* HUDTextRenderer.swift */; };
 		1CF380E7749EB1CAC8BD681D /* unixdgram.c in Sources */ = {isa = PBXBuildFile; fileRef = 64EE10CBD1AFC5419C9034F9 /* unixdgram.c */; };
 		21A16B2F4AB9A342159CB7E9 /* input.bin in Resources */ = {isa = PBXBuildFile; fileRef = 587C93717C99E801AB4CE88D /* input.bin */; };
 		2379FC0DE439196477D42A61 /* test.xml in Resources */ = {isa = PBXBuildFile; fileRef = BAAEA93EF566E90FD32609F4 /* test.xml */; };
@@ -235,6 +236,7 @@
 		7DC52B68097370F001630E4B /* inet.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = inet.h; sourceTree = "<group>"; };
 		7F74E122AE370799398EE7F5 /* XPLMGraphics.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMGraphics.h; sourceTree = "<group>"; };
 		80E72516261C0956BA67ECF6 /* LICENSE.TXT */ = {isa = PBXFileReference; path = LICENSE.TXT; sourceTree = "<group>"; };
+		816E404CF2877EEEFFD84D42 /* HUDTextRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDTextRenderer.swift; sourceTree = "<group>"; };
 		832BD731A67E8972FD7F98C6 /* libfmodstudio.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libfmodstudio.dylib; sourceTree = "<group>"; };
 		843B98ABE9AE24CAD1280571 /* hidapi.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hidapi.h; sourceTree = "<group>"; };
 		84970585DCAFD8F77CE53075 /* README */ = {isa = PBXFileReference; path = README; sourceTree = "<group>"; };
@@ -890,6 +892,7 @@
 		D05A2C541CAD034454928A4C /* Bridge */ = {
 			isa = PBXGroup;
 			children = (
+				816E404CF2877EEEFFD84D42 /* HUDTextRenderer.swift */,
 				1AB6B3EA2310FB78293D8912 /* LuaBridge.swift */,
 			);
 			path = Bridge;
@@ -1118,6 +1121,7 @@
 				D10FBF5FA1EFCB81CB064A4B /* FloatingWindow.cpp in Sources */,
 				C0349A537263647097EC7CED /* FlyWithLua.cpp in Sources */,
 				58D9E2BFF1BA20420C97388E /* FmodIntegration.cpp in Sources */,
+				1C9A7DD3829AE0FB19B2D75D /* HUDTextRenderer.swift in Sources */,
 				151A11D83EBD3004078DA2FF /* ImGUIIntegration.cpp in Sources */,
 				A4194B0D7A4D94D145042E74 /* LuaBridge.swift in Sources */,
 				E5AF268FB7924ECA0508952F /* LuaXML_lib.c in Sources */,
