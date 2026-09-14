@@ -199,9 +199,11 @@ public final class HUDTextRenderer {
         guard textureID != 0 else { return false }
 
         let previousTextureState = currentTextureState()
-        bindTextureOnUnitZero(textureID)
+        // Save the state before binding.  The attribute stack must include the
+        // binding change as well as the sampler parameters.
         glPushAttrib(GLbitfield(GL_TEXTURE_BIT))
         glPushClientAttrib(GLbitfield(GL_CLIENT_PIXEL_STORE_BIT))
+        bindTextureOnUnitZero(textureID)
         glPixelStorei(GLenum(GL_UNPACK_ALIGNMENT), 1)
         glPixelStorei(GLenum(GL_UNPACK_ROW_LENGTH), 0)
         glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_MIN_FILTER), GLint(GL_LINEAR))
@@ -354,9 +356,9 @@ public final class HUDTextRenderer {
     private func upload(pixels: [UInt8], width: Int, height: Int, x: Int, y: Int, atlas: Atlas) -> Bool {
         guard atlas.textureID != 0 else { return false }
         let previousTextureState = currentTextureState()
-        bindTextureOnUnitZero(atlas.textureID)
         glPushAttrib(GLbitfield(GL_TEXTURE_BIT))
         glPushClientAttrib(GLbitfield(GL_CLIENT_PIXEL_STORE_BIT))
+        bindTextureOnUnitZero(atlas.textureID)
         glPixelStorei(GLenum(GL_UNPACK_ALIGNMENT), 1)
         glPixelStorei(GLenum(GL_UNPACK_ROW_LENGTH), 0)
         pixels.withUnsafeBytes { rawBuffer in
@@ -386,10 +388,11 @@ public final class HUDTextRenderer {
         }
 
         let previousTextureState = currentTextureState()
-        bindTextureOnUnitZero(firstAtlas.textureID)
         // Lua and other plug-ins may have just drawn with texturing disabled.
         // X-Plane keeps an internal cache of this state, so use the SDK helper
-        // instead of relying on a raw glEnable() alone.
+        // instead of relying on a raw glEnable() alone.  Set the simulator
+        // state before binding: XPLMSetGraphicsState may invalidate the
+        // currently bound texture on the OpenGL/Metal bridge.
         glPushAttrib(GLbitfield(GL_ENABLE_BIT | GL_TEXTURE_BIT | GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT))
         XPLMSetGraphicsState(0, 1, 0, 1, 1, 0, 0)
         // Culling is not part of XPLMSetGraphicsState.  Keep the screen-space
@@ -403,6 +406,7 @@ public final class HUDTextRenderer {
         glBlendFunc(GLenum(GL_SRC_ALPHA), GLenum(GL_ONE_MINUS_SRC_ALPHA))
         glColor4f(currentColor[0], currentColor[1], currentColor[2], currentColor[3])
         glTexEnvi(GLenum(GL_TEXTURE_ENV), GLenum(GL_TEXTURE_ENV_MODE), GLint(GL_MODULATE))
+        bindTextureOnUnitZero(firstAtlas.textureID)
 
         glBegin(GLenum(GL_QUADS))
         for (preparedGlyph, penX) in prepared {
