@@ -110,6 +110,7 @@ static int gMouseEventWindowTop = 0;
 static int gMouseEventWindowRight = 0;
 static int gMouseEventWindowBottom = 0;
 static bool gMouseEventWindowGeometryInitialized = false;
+static bool gMouseClickCaptured = false;
 static float gSometimesAccumulator = 0.0f;
 static int gDiscoveredScriptCount = 0;
 static int gLoadedScriptCount = 0;
@@ -956,17 +957,24 @@ static void RunLuaCallbackChunk(const std::string& code, const char* context, in
     }
 }
 
-static void UpdateLuaMouseGlobals() {
+static void UpdateLuaMouseGlobals(int globalMouseX, int globalMouseY) {
     if (!L) {
         return;
     }
 
-    int mouseX = 0;
-    int mouseY = 0;
-    int screenWidth = 0;
-    int screenHeight = 0;
-    XPLMGetMouseLocation(&mouseX, &mouseY);
-    XPLMGetScreenSize(&screenWidth, &screenHeight);
+    int screenLeft = 0;
+    int screenTop = 0;
+    int screenRight = 0;
+    int screenBottom = 0;
+    XPLMGetScreenBoundsGlobal(&screenLeft, &screenTop, &screenRight, &screenBottom);
+
+    // Lua drawing callbacks use the X-Plane desktop as their origin. Modern
+    // window callbacks provide global desktop boxels, so normalize both paths
+    // to the same coordinate space before exposing them to scripts.
+    const int mouseX = globalMouseX - screenLeft;
+    const int mouseY = globalMouseY - screenBottom;
+    const int screenWidth = screenRight - screenLeft;
+    const int screenHeight = screenTop - screenBottom;
 
     lua_pushinteger(L, mouseX);
     lua_setglobal(L, "MOUSE_X");
@@ -978,6 +986,13 @@ static void UpdateLuaMouseGlobals() {
     lua_setglobal(L, "SCREEN_HIGHT");
     lua_pushinteger(L, screenHeight);
     lua_setglobal(L, "SCREEN_HEIGHT");
+}
+
+static void UpdateLuaMouseGlobals() {
+    int globalMouseX = 0;
+    int globalMouseY = 0;
+    XPLMGetMouseLocationGlobal(&globalMouseX, &globalMouseY);
+    UpdateLuaMouseGlobals(globalMouseX, globalMouseY);
 }
 
 static bool LuaGlobalBoolean(const char* name) {
@@ -998,13 +1013,14 @@ static void MouseEventWindowKey(XPLMWindowID /*inWindowID*/, char /*inKey*/, XPL
                                 char /*inVirtualKey*/, void* /*inRefcon*/, int /*losingFocus*/) {
 }
 
-static int MouseEventWindowClick(XPLMWindowID /*inWindowID*/, int /*x*/, int /*y*/,
+static int MouseEventWindowClick(XPLMWindowID /*inWindowID*/, int x, int y,
                                  XPLMMouseStatus inMouse, void* /*inRefcon*/) {
     if (!L || !flywithlua::LuaIsRunning) {
+        gMouseClickCaptured = false;
         return 0;
     }
 
-    UpdateLuaMouseGlobals();
+    UpdateLuaMouseGlobals(x, y);
     lua_pushboolean(L, 0);
     lua_setglobal(L, "RESUME_MOUSE_CLICK");
 
@@ -1018,16 +1034,30 @@ static int MouseEventWindowClick(XPLMWindowID /*inWindowID*/, int /*x*/, int /*y
     lua_setglobal(L, "MOUSE_STATUS");
 
     RunLuaCallbackChunk(gMouseClickCommand, "do_on_mouse_click", gMouseClickChunkRef);
-    return LuaGlobalBoolean("RESUME_MOUSE_CLICK") ? 1 : 0;
+    const bool resumeClick = LuaGlobalBoolean("RESUME_MOUSE_CLICK");
+    if (inMouse == xplm_MouseDown) {
+        gMouseClickCaptured = resumeClick;
+    } else if (resumeClick) {
+        gMouseClickCaptured = true;
+    }
+
+    // Once Lua consumes the mouse-down, keep the whole drag/up sequence in
+    // this window. Returning it to X-Plane midway through the gesture causes
+    // the tracking glitches warned about by the XPLM300 window API.
+    const bool consumeClick = gMouseClickCaptured;
+    if (inMouse == xplm_MouseUp) {
+        gMouseClickCaptured = false;
+    }
+    return consumeClick ? 1 : 0;
 }
 
-static int MouseEventWindowWheel(XPLMWindowID /*inWindowID*/, int /*x*/, int /*y*/, int wheel,
+static int MouseEventWindowWheel(XPLMWindowID /*inWindowID*/, int x, int y, int wheel,
                                  int clicks, void* /*inRefcon*/) {
     if (!L || !flywithlua::LuaIsRunning) {
         return 0;
     }
 
-    UpdateLuaMouseGlobals();
+    UpdateLuaMouseGlobals(x, y);
     lua_pushboolean(L, 0);
     lua_setglobal(L, "RESUME_MOUSE_WHEEL");
     lua_pushinteger(L, wheel);
@@ -1121,6 +1151,7 @@ static void DestroyMouseEventWindow() {
         gMouseEventWindow = nullptr;
     }
     gMouseEventWindowGeometryInitialized = false;
+    gMouseClickCaptured = false;
 }
 
 static bool LuaGraphicsCallAllowed(const char* functionName) {
@@ -2302,6 +2333,7 @@ static void ResetLuaRuntimeState() {
     gOnExitCommand.clear();
     gMouseClickCommand.clear();
     gMouseWheelCommand.clear();
+    gMouseClickCaptured = false;
     gSometimesAccumulator = 0.0f;
 }
 
@@ -2997,6 +3029,7 @@ PLUGIN_API void XPluginStop(void) {
 
 PLUGIN_API void XPluginDisable(void) {
     flywithlua::LuaIsRunning = false;
+    gMouseClickCaptured = false;
     flywithlua_update_script_load_summary(0, 0, 0, "[]");
     UpdateFlyWithLuaMenuEnabled(false);
 }
