@@ -370,6 +370,7 @@ local function test_hud_g1000()
 					weight = weight,
 				}
 				draws[#draws + 1] = tostring(text)
+				if native.draw_deferred then return false, true end
 				if native.draw_result == nil then return true end
 				return native.draw_result
 			end,
@@ -492,6 +493,13 @@ local function test_hud_g1000()
 	failing_native.hud_g1000.draw()
 	assert(#failing_native._legacy_draws > 0)
 	assert(failing_native.hud_g1000.state.text_backend.disabled)
+
+	local deferred_native = make_environment(make_data(), {}, {}, {draw_deferred = true})
+	load_in_environment(hud_path, deferred_native)
+	deferred_native.hud_g1000.update()
+	deferred_native.hud_g1000.draw()
+	assert(#deferred_native._legacy_draws > 0)
+	assert(not deferred_native.hud_g1000.state.text_backend.disabled)
 
 	local bottom_left = env.hud_g1000.get_layout(1920, 1080)
 	assert(bottom_left.x == 18)

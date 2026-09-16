@@ -12,6 +12,12 @@ import Foundation
 public final class HUDTextRenderer {
     public static let shared = HUDTextRenderer()
 
+    public enum DrawResult: Equatable {
+        case rendered
+        case deferred
+        case failed
+    }
+
     private struct AtlasKey: Hashable {
         let family: String
         let weight: Int
@@ -84,6 +90,7 @@ public final class HUDTextRenderer {
     private var nextMeasurementSlot = 0
     private var glyphUploadWindowStart = CFAbsoluteTimeGetCurrent()
     private var glyphUploadsInWindow = 0
+    private var didDeferGlyphUpload = false
     private var isBatching = false
     private var batchTextureState: TextureState?
     private var batchTextureMatrixState: TextureMatrixState?
@@ -185,17 +192,35 @@ public final class HUDTextRenderer {
                      logicalSize: CGFloat,
                      family: String,
                      weight: Int) -> Bool {
+        drawResult(text: text,
+                   x: x,
+                   y: y,
+                   logicalSize: logicalSize,
+                   family: family,
+                   weight: weight) == .rendered
+    }
+
+    /// Draws a string and distinguishes a temporary glyph-upload deferral
+    /// from a renderer failure. Callers can use the legacy font for a
+    /// deferred string without disabling the native renderer permanently.
+    public func drawResult(text: String,
+                           x: CGFloat,
+                           y: CGFloat,
+                           logicalSize: CGFloat,
+                           family: String,
+                           weight: Int) -> DrawResult {
         guard !text.isEmpty,
               x.isFinite,
               y.isFinite,
               logicalSize.isFinite,
               logicalSize > 0,
               logicalSize <= maximumLogicalFontSize else {
-            return text.isEmpty
+            return text.isEmpty ? .rendered : .failed
         }
 
+        didDeferGlyphUpload = false
         let key = atlasKey(family: family, logicalSize: logicalSize, weight: weight)
-        guard let atlas = atlas(for: key) else { return false }
+        guard let atlas = atlas(for: key) else { return .failed }
 
         useCounter &+= 1
         atlas.lastUsed = useCounter
@@ -206,6 +231,9 @@ public final class HUDTextRenderer {
 
         for scalar in text.unicodeScalars {
             guard let glyph = glyph(for: scalar, atlas: atlas) else {
+                if didDeferGlyphUpload {
+                    return .deferred
+                }
                 // A missing glyph still advances the pen when CoreText knows
                 // its width.  Returning false would make a single unusual
                 // character disable the entire HUD backend.
@@ -213,21 +241,25 @@ public final class HUDTextRenderer {
                     penX += advance
                     continue
                 }
-                return false
+                return .failed
             }
             prepared.append((PreparedGlyph(record: glyph, atlas: atlas), penX))
             penX += glyph.advance
+        }
+
+        if didDeferGlyphUpload {
+            return .deferred
         }
 
         // A non-empty string must not report success when every glyph failed
         // to rasterize or upload.  The caller uses false to switch to the
         // legacy XPLM font path, which keeps the HUD visible on a graphics
         // context where texture allocation is unavailable.
-        guard !prepared.isEmpty else { return false }
+        guard !prepared.isEmpty else { return .failed }
         if isBatching {
-            return drawPreparedInBatch(prepared, x: x, y: y)
+            return drawPreparedInBatch(prepared, x: x, y: y) ? .rendered : .failed
         }
-        return drawPrepared(prepared, x: x, y: y)
+        return drawPrepared(prepared, x: x, y: y) ? .rendered : .failed
     }
 
     private func drawPreparedInBatch(_ prepared: [(PreparedGlyph, CGFloat)], x: CGFloat, y: CGFloat) -> Bool {
@@ -270,6 +302,7 @@ public final class HUDTextRenderer {
         }
 
         guard glyphUploadsInWindow < maximumGlyphUploadsPerWindow else {
+            didDeferGlyphUpload = true
             return false
         }
         glyphUploadsInWindow += 1

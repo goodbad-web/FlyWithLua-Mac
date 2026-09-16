@@ -318,6 +318,12 @@ public func l_measure_string(L: OpaquePointer?) -> Int32 {
     return 1
 }
 
+@_cdecl("l_elapsed_time")
+public func l_elapsed_time(L: OpaquePointer?) -> Int32 {
+    lua_pushnumber(L, Double(XPLMGetElapsedTime()))
+    return 1
+}
+
 private func flywithluaTextArgument(from L: OpaquePointer?, index: Int32) -> String? {
     guard let cString = lua_tolstring(L, index, nil) else {
         return nil
@@ -351,7 +357,7 @@ public func l_draw_hidpi_string(L: OpaquePointer?) -> Int32 {
 
     let family = flywithluaTextArgument(from: L, index: 5) ?? "sf_pro_text"
     let weight = flywithluaTextWeight(from: L, index: 6)
-    let success = HUDTextRenderer.shared.draw(
+    let result = HUDTextRenderer.shared.drawResult(
         text: text,
         x: CGFloat(lua_tonumber(L, 1)),
         y: CGFloat(lua_tonumber(L, 2)),
@@ -359,8 +365,9 @@ public func l_draw_hidpi_string(L: OpaquePointer?) -> Int32 {
         family: family,
         weight: weight
     )
-    lua_pushboolean(L, success ? 1 : 0)
-    return 1
+    lua_pushboolean(L, result == .rendered ? 1 : 0)
+    lua_pushboolean(L, result == .deferred ? 1 : 0)
+    return 2
 }
 
 @_cdecl("l_measure_hidpi_string")
@@ -428,6 +435,9 @@ public func register_swift_bridge(L: OpaquePointer?) {
     // Register measure_string
     lua_pushcclosure(L, l_measure_string, 0)
     lua_setfield(L, -2, "measure_string")
+
+    lua_pushcclosure(L, l_elapsed_time, 0)
+    lua_setfield(L, -2, "elapsed_time")
 
     // Register high-DPI text functions. The legacy functions above remain
     // unchanged for existing Lua scripts.

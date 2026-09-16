@@ -964,6 +964,15 @@ local function native_text_backend()
     return mac_native
 end
 
+local function native_elapsed_time()
+    if type(mac_native) ~= "table" or type(mac_native.elapsed_time) ~= "function" then
+        return nil
+    end
+    local ok, value = pcall(mac_native.elapsed_time)
+    if ok and is_finite_number(value) then return value end
+    return nil
+end
+
 local function disable_native_text(reason)
     if hud.state.text_backend.disabled then return end
     hud.state.text_backend.disabled = true
@@ -1065,7 +1074,7 @@ local function draw_text(font_size, x, y, text, color, layout, style)
     local native = native_text_backend()
     if native ~= nil then
         local family, weight = native_text_style(style)
-        local ok, rendered = pcall(
+        local ok, rendered, deferred = pcall(
             native.draw_hidpi_string,
             draw_x,
             draw_y,
@@ -1079,7 +1088,7 @@ local function draw_text(font_size, x, y, text, color, layout, style)
         end
         if not ok then
             disable_native_text(rendered)
-        elseif rendered ~= true then
+        elseif rendered ~= true and deferred ~= true then
             disable_native_text("draw returned false")
         end
     end
@@ -1366,9 +1375,13 @@ function hud.update()
     -- simulator frame rate. One clock DataRef is read per frame; the full
     -- snapshot and its numeric values are refreshed at 5 Hz.
     local sim_time = read_number("sim/time/total_running_time_sec")
-    local clock = sim_time or os.clock()
+    -- XPLMGetElapsedTime is a wall timer, so updates continue while the sim
+    -- is paused. If neither clock is available, do not throttle and risk a
+    -- permanently stale HUD on compatibility hosts.
+    local clock = native_elapsed_time() or sim_time
     local last_update_time = hud.state.last_update_time
-    if last_update_time ~= nil
+    if clock ~= nil
+        and last_update_time ~= nil
         and clock >= last_update_time
         and clock - last_update_time < UPDATE_INTERVAL_SECONDS then
         return

@@ -155,7 +155,7 @@ copy_file() {
     cp -p "$source_path" "$destination_path"
 }
 
-for required_directory in Internals Modules Scripts "Scripts (Quarantine)"; do
+for required_directory in Internals Modules Scripts "Scripts (disabled)" "Scripts (Quarantine)"; do
     if [ ! -d "$RUNTIME_SOURCE/$required_directory" ]; then
         echo "Error: Missing runtime directory: $RUNTIME_SOURCE/$required_directory"
         exit 1
@@ -215,6 +215,7 @@ if [ "$DEPLOY_TO_XPLANE" = "1" ]; then
     merge_tree "$PACKAGE_ROOT/Internals" "$RUNTIME_STAGE_DIR/Internals"
     merge_tree "$PACKAGE_ROOT/Modules" "$RUNTIME_STAGE_DIR/Modules"
     merge_tree "$PACKAGE_ROOT/Scripts" "$RUNTIME_STAGE_DIR/Scripts"
+    merge_tree "$PACKAGE_ROOT/Scripts (disabled)" "$RUNTIME_STAGE_DIR/Scripts (disabled)"
     merge_tree "$PACKAGE_ROOT/Scripts (Quarantine)" "$RUNTIME_STAGE_DIR/Scripts (Quarantine)"
 
     for runtime_file in fwl_prefs.ini user.ini user.exit; do

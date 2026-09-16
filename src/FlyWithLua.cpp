@@ -185,6 +185,7 @@ static bool IsRegularFile(const std::string& path);
 static bool IsSafeRelativeScriptPath(const std::string& path);
 static bool EnsureDirectoryTree(const std::string& path);
 static std::string GetMainDirectoryFromScripts();
+static std::string FlyWithLuaLocalizedText(const char* english, const char* japanese);
 static std::string FlyWithLuaScriptMenuGroupForPath(const std::string& path);
 static void RefreshFlyWithLuaScriptsMenu();
 static void WriteDebugFile();
@@ -446,7 +447,8 @@ static void FlyWithLuaScriptsMenuHandler(void* /*inMenuRef*/, void* inItemRef) {
         flywithlua::scriptDir.empty() ||
         !IsRegularFile(flywithlua::JoinPath(sourceRoot, entry->relativePath))) {
         XPLMDebugString(("FlyWithLua-Mac Warning: Cannot change script state for " + entry->relativePath + ".\n").c_str());
-        flywithlua_update_last_log_message("Could not change script state");
+        const std::string message = FlyWithLuaLocalizedText("Could not change script state", "スクリプトの状態を変更できません");
+        flywithlua_update_last_log_message(message.c_str());
         RefreshFlyWithLuaScriptsMenu();
         return;
     }
@@ -455,7 +457,8 @@ static void FlyWithLuaScriptsMenuHandler(void* /*inMenuRef*/, void* inItemRef) {
     const std::string destinationPath = flywithlua::JoinPath(destinationRoot, entry->relativePath);
     if (IsRegularFile(destinationPath) || IsExistingDirectory(destinationPath)) {
         XPLMDebugString(("FlyWithLua-Mac Warning: Script destination already exists: " + destinationPath + "\n").c_str());
-        flywithlua_update_last_log_message("Script destination already exists");
+        const std::string message = FlyWithLuaLocalizedText("Script destination already exists", "移動先に同名のスクリプトがあります");
+        flywithlua_update_last_log_message(message.c_str());
         RefreshFlyWithLuaScriptsMenu();
         return;
     }
@@ -466,7 +469,8 @@ static void FlyWithLuaScriptsMenuHandler(void* /*inMenuRef*/, void* inItemRef) {
         : destinationPath.substr(0, lastSlash);
     if (!EnsureDirectoryTree(destinationDirectory)) {
         XPLMDebugString(("FlyWithLua-Mac Warning: Could not create script directory: " + destinationDirectory + "\n").c_str());
-        flywithlua_update_last_log_message("Could not create script directory");
+        const std::string message = FlyWithLuaLocalizedText("Could not create script directory", "スクリプトフォルダを作成できません");
+        flywithlua_update_last_log_message(message.c_str());
         RefreshFlyWithLuaScriptsMenu();
         return;
     }
@@ -474,13 +478,17 @@ static void FlyWithLuaScriptsMenuHandler(void* /*inMenuRef*/, void* inItemRef) {
     if (std::rename(sourcePath.c_str(), destinationPath.c_str()) != 0) {
         XPLMDebugString(("FlyWithLua-Mac Warning: Could not " + std::string(enable ? "enable" : "disable") +
                          " script " + entry->relativePath + ".\n").c_str());
-        flywithlua_update_last_log_message("Could not change script state");
+        const std::string message = FlyWithLuaLocalizedText("Could not change script state", "スクリプトの状態を変更できません");
+        flywithlua_update_last_log_message(message.c_str());
         RefreshFlyWithLuaScriptsMenu();
         return;
     }
 
     entry->enabled = enable;
-    const std::string message = std::string(enable ? "Enabled script: " : "Disabled script: ") + entry->relativePath;
+    const std::string message = FlyWithLuaLocalizedText(
+        enable ? "Enabled script: " : "Disabled script: ",
+        enable ? "有効化したスクリプト: " : "無効化したスクリプト: "
+    ) + entry->relativePath;
     XPLMDebugString(("FlyWithLua-Mac: " + message + "; reloading scripts.\n").c_str());
     flywithlua_update_last_log_message(message.c_str());
     flywithlua_reload_scripts();
@@ -871,7 +879,8 @@ static void RegisterFlyWithLuaMenu() {
     }
 
     gReloadMenuItem = XPLMAppendMenuItem(gFlyWithLuaMenu, "Reload all Lua script files", (void*) "Reload", 1);
-    gFlyWithLuaScriptsMenuItem = XPLMAppendMenuItem(gFlyWithLuaMenu, "FlyWithLua Scripts", nullptr, 1);
+    const std::string scriptsMenuTitle = FlyWithLuaLocalizedText("FlyWithLua Scripts", "FlyWithLua スクリプト");
+    gFlyWithLuaScriptsMenuItem = XPLMAppendMenuItem(gFlyWithLuaMenu, scriptsMenuTitle.c_str(), nullptr, 1);
     if (gFlyWithLuaScriptsMenuItem >= 0) {
         RefreshFlyWithLuaScriptsMenu();
     }
@@ -931,6 +940,10 @@ static std::string GetMainDirectoryFromScripts() {
     std::string scriptsStr = flywithlua::scriptDir;
     size_t lastS = scriptsStr.find_last_of("/");
     return (lastS != std::string::npos) ? scriptsStr.substr(0, lastS) : ".";
+}
+
+static std::string FlyWithLuaLocalizedText(const char* english, const char* japanese) {
+    return XPLMGetLanguage() == xplm_Language_Japanese ? japanese : english;
 }
 
 static std::string EscapeLuaSingleQuotedString(const std::string& value) {
@@ -1698,13 +1711,18 @@ static std::string FlyWithLuaScriptMenuGroupForPath(const std::string& path) {
     return "Other";
 }
 
+static std::string FlyWithLuaScriptMenuGroupLabel(const std::string& group) {
+    return group == "Other" ? FlyWithLuaLocalizedText("Other", "その他") : group;
+}
+
 static void RefreshFlyWithLuaScriptsMenu() {
     if (!gFlyWithLuaMenu || gFlyWithLuaScriptsMenuItem < 0) {
         return;
     }
 
     DestroyFlyWithLuaScriptsMenu();
-    gFlyWithLuaScriptsMenu = XPLMCreateMenu("FlyWithLua Scripts", gFlyWithLuaMenu,
+    const std::string scriptsMenuTitle = FlyWithLuaLocalizedText("FlyWithLua Scripts", "FlyWithLua スクリプト");
+    gFlyWithLuaScriptsMenu = XPLMCreateMenu(scriptsMenuTitle.c_str(), gFlyWithLuaMenu,
                                             gFlyWithLuaScriptsMenuItem, FlyWithLuaScriptsMenuHandler, nullptr);
     if (!gFlyWithLuaScriptsMenu) {
         XPLMDebugString("FlyWithLua-Mac Warning: Could not create FlyWithLua Scripts submenu.\n");
@@ -1754,7 +1772,8 @@ static void RefreshFlyWithLuaScriptsMenu() {
     });
 
     if (scripts.empty()) {
-        XPLMAppendMenuItem(gFlyWithLuaScriptsMenu, "No Lua scripts found", nullptr, 0);
+        const std::string message = FlyWithLuaLocalizedText("No Lua scripts found", "Luaスクリプトが見つかりません");
+        XPLMAppendMenuItem(gFlyWithLuaScriptsMenu, message.c_str(), nullptr, 0);
         return;
     }
 
@@ -1771,12 +1790,13 @@ static void RefreshFlyWithLuaScriptsMenu() {
         if (!group) {
             auto newGroup = std::make_unique<FlyWithLuaScriptMenuGroup>();
             newGroup->key = groupKey;
-            newGroup->menuItemIndex = XPLMAppendMenuItem(gFlyWithLuaScriptsMenu, groupKey.c_str(), nullptr, 1);
+            const std::string groupLabel = FlyWithLuaScriptMenuGroupLabel(groupKey);
+            newGroup->menuItemIndex = XPLMAppendMenuItem(gFlyWithLuaScriptsMenu, groupLabel.c_str(), nullptr, 1);
             if (newGroup->menuItemIndex < 0) {
                 XPLMDebugString(("FlyWithLua-Mac Warning: Could not append script group menu item: " + groupKey + "\n").c_str());
                 continue;
             }
-            newGroup->menu = XPLMCreateMenu(("FlyWithLua Scripts " + groupKey).c_str(),
+            newGroup->menu = XPLMCreateMenu((scriptsMenuTitle + " " + groupLabel).c_str(),
                                             gFlyWithLuaScriptsMenu, newGroup->menuItemIndex,
                                             FlyWithLuaScriptsMenuHandler, nullptr);
             if (!newGroup->menu) {
@@ -1794,7 +1814,7 @@ static void RefreshFlyWithLuaScriptsMenu() {
         FlyWithLuaScriptMenuEntry* entryPointer = entry.get();
         std::string label = entry->relativePath;
         if (!entry->enabled) {
-            label += " [disabled]";
+            label += FlyWithLuaLocalizedText(" [disabled]", " [無効]");
         }
         entry->menuItemIndex = XPLMAppendMenuItem(group->menu, label.c_str(), entryPointer, 1);
         if (entry->menuItemIndex >= 0) {

@@ -11,6 +11,7 @@
 
 #include "XPLMDataAccess.h"
 #include "XPLMGraphics.h"
+#include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
 #include "lua.hpp"
 
@@ -478,6 +479,11 @@ static int luaMeasureHiDPIString(lua_State* state) {
     return 1;
 }
 
+static int luaElapsedTime(lua_State* state) {
+    lua_pushnumber(state, static_cast<lua_Number>(XPLMGetElapsedTime()));
+    return 1;
+}
+
 static void registerBridgeFunction(lua_State* state,
                                    const char* name,
                                    lua_CFunction function) {
@@ -550,7 +556,7 @@ extern "C" void register_swift_bridge(lua_State* state) {
         return;
     }
 
-    lua_createtable(state, 0, 8);
+    lua_createtable(state, 0, 9);
     registerBridgeFunction(state, "get_dataref", luaGetDataRef);
     registerBridgeFunction(state, "set_dataref", luaSetDataRef);
     registerBridgeFunction(state, "log_msg", luaLogMessage);
@@ -559,6 +565,7 @@ extern "C" void register_swift_bridge(lua_State* state) {
     registerBridgeFunction(state, "measure_string", luaMeasureString);
     registerBridgeFunction(state, "draw_hidpi_string", luaDrawHiDPIString);
     registerBridgeFunction(state, "measure_hidpi_string", luaMeasureHiDPIString);
+    registerBridgeFunction(state, "elapsed_time", luaElapsedTime);
     lua_setfield(state, LUA_GLOBALSINDEX, "mac_native");
 
     XPLMDebugString("FlyWithLua-Mac: portable CMake 'mac_native' module registered in Lua.\n");
