@@ -19,6 +19,11 @@ public final class HUDTextRenderer {
         let rasterScale: Int
     }
 
+    private struct MeasurementKey: Hashable {
+        let text: String
+        let atlas: AtlasKey
+    }
+
     private struct GlyphKey: Hashable {
         let scalar: UInt32
     }
@@ -69,8 +74,19 @@ public final class HUDTextRenderer {
     private let rasterScale: CGFloat = 2.0
     private let maximumLogicalFontSize: CGFloat = 256.0
     private let maximumAtlases = 8
+    private let maximumMeasurements = 512
+    private let maximumGlyphUploadsPerWindow = 8
+    private let glyphUploadWindowSeconds: CFTimeInterval = 0.05
     private var atlases: [AtlasKey: Atlas] = [:]
     private var useCounter: UInt64 = 0
+    private var measuredWidths: [MeasurementKey: CGFloat] = [:]
+    private var measurementKeys: [MeasurementKey] = []
+    private var nextMeasurementSlot = 0
+    private var glyphUploadWindowStart = CFAbsoluteTimeGetCurrent()
+    private var glyphUploadsInWindow = 0
+    private var isBatching = false
+    private var batchTextureState: TextureState?
+    private var batchTextureMatrixState: TextureMatrixState?
 
     private init() {}
 
@@ -86,6 +102,14 @@ public final class HUDTextRenderer {
             return text.isEmpty ? 0 : nil
         }
 
+        let key = MeasurementKey(
+            text: text,
+            atlas: atlasKey(family: family, logicalSize: logicalSize, weight: weight)
+        )
+        if let measured = measuredWidths[key] {
+            return measured
+        }
+
         let font = makeFont(family: family, logicalSize: logicalSize, weight: weight)
         let attributed = NSAttributedString(string: text, attributes: [
             NSAttributedString.Key(kCTFontAttributeName as String): font
@@ -93,7 +117,65 @@ public final class HUDTextRenderer {
         let line = CTLineCreateWithAttributedString(attributed as CFAttributedString)
         let width = CTLineGetTypographicBounds(line, nil, nil, nil)
         guard width.isFinite else { return nil }
-        return CGFloat(width) / rasterScale
+        let measured = CGFloat(width) / rasterScale
+        rememberMeasurement(measured, for: key)
+        return measured
+    }
+
+    private func rememberMeasurement(_ width: CGFloat, for key: MeasurementKey) {
+        guard measuredWidths[key] == nil else { return }
+
+        if measurementKeys.count < maximumMeasurements {
+            measurementKeys.append(key)
+        } else {
+            let slot = nextMeasurementSlot
+            measuredWidths[measurementKeys[slot]] = nil
+            measurementKeys[slot] = key
+            nextMeasurementSlot = (slot + 1) % maximumMeasurements
+        }
+        measuredWidths[key] = width
+    }
+
+    /// Starts a single text-rendering state scope for one HUD text group.
+    ///
+    /// The Lua HUD draws many strings. Keeping the shared OpenGL state alive
+    /// for that group avoids a full attribute/state round-trip per string.
+    public func beginFrame() -> Bool {
+        guard !isBatching else { return false }
+
+        batchTextureState = currentTextureState()
+        glPushAttrib(GLbitfield(GL_ENABLE_BIT | GL_TEXTURE_BIT | GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT))
+        XPLMSetGraphicsState(0, 1, 0, 1, 1, 0, 0)
+        glDisable(GLenum(GL_CULL_FACE))
+        glEnable(GLenum(GL_TEXTURE_2D))
+        glEnable(GLenum(GL_BLEND))
+        glBlendFunc(GLenum(GL_SRC_ALPHA), GLenum(GL_ONE_MINUS_SRC_ALPHA))
+        glTexEnvi(GLenum(GL_TEXTURE_ENV), GLenum(GL_TEXTURE_ENV_MODE), GLint(GL_MODULATE))
+        batchTextureMatrixState = pushIdentityTextureMatrix()
+        isBatching = true
+        return true
+    }
+
+    /// Ends the shared text-rendering state scope and restores X-Plane state.
+    public func endFrame() -> Bool {
+        guard isBatching else { return true }
+
+        // Check once per group. Calling glGetError for every string can force
+        // a synchronous driver round-trip and defeats the batching benefit.
+        let drawError = glGetError()
+
+        if let textureMatrixState = batchTextureMatrixState {
+            popTextureMatrix(textureMatrixState)
+        }
+        glPopAttrib()
+        if let textureState = batchTextureState {
+            restoreTextureState(textureState)
+        }
+        XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0)
+        batchTextureMatrixState = nil
+        batchTextureState = nil
+        isBatching = false
+        return drawError == GLenum(GL_NO_ERROR)
     }
 
     /// Draws a string using the current OpenGL color.
@@ -142,7 +224,56 @@ public final class HUDTextRenderer {
         // legacy XPLM font path, which keeps the HUD visible on a graphics
         // context where texture allocation is unavailable.
         guard !prepared.isEmpty else { return false }
+        if isBatching {
+            return drawPreparedInBatch(prepared, x: x, y: y)
+        }
         return drawPrepared(prepared, x: x, y: y)
+    }
+
+    private func drawPreparedInBatch(_ prepared: [(PreparedGlyph, CGFloat)], x: CGFloat, y: CGFloat) -> Bool {
+        guard let firstAtlas = prepared.first?.0.atlas, firstAtlas.textureID != 0 else {
+            return false
+        }
+
+        bindTextureOnUnitZero(firstAtlas.textureID)
+        glBegin(GLenum(GL_QUADS))
+        for (preparedGlyph, penX) in prepared {
+            let record = preparedGlyph.record
+            let left = x + penX + record.originX
+            let bottom = y + record.originY
+            let right = left + CGFloat(record.textureWidth) / rasterScale
+            let top = bottom + CGFloat(record.textureHeight) / rasterScale
+            let u0 = Float(record.textureX) / Float(Atlas.width)
+            let v0 = Float(record.textureY) / Float(Atlas.height)
+            let u1 = Float(record.textureX + record.textureWidth) / Float(Atlas.width)
+            let v1 = Float(record.textureY + record.textureHeight) / Float(Atlas.height)
+
+            glTexCoord2f(u0, v1)
+            glVertex2f(GLfloat(left), GLfloat(bottom))
+            glTexCoord2f(u1, v1)
+            glVertex2f(GLfloat(right), GLfloat(bottom))
+            glTexCoord2f(u1, v0)
+            glVertex2f(GLfloat(right), GLfloat(top))
+            glTexCoord2f(u0, v0)
+            glVertex2f(GLfloat(left), GLfloat(top))
+        }
+        glEnd()
+        return true
+    }
+
+    private func reserveGlyphUpload() -> Bool {
+        let now = CFAbsoluteTimeGetCurrent()
+        if now < glyphUploadWindowStart ||
+            now - glyphUploadWindowStart >= glyphUploadWindowSeconds {
+            glyphUploadWindowStart = now
+            glyphUploadsInWindow = 0
+        }
+
+        guard glyphUploadsInWindow < maximumGlyphUploadsPerWindow else {
+            return false
+        }
+        glyphUploadsInWindow += 1
+        return true
     }
 
     private func atlasKey(family: String, logicalSize: CGFloat, weight: Int) -> AtlasKey {
@@ -290,6 +421,7 @@ public final class HUDTextRenderer {
 
         let bitmapWidth = max(1, Int(ceil(bounds.width)) + Atlas.padding * 2)
         let bitmapHeight = max(1, Int(ceil(bounds.height)) + Atlas.padding * 2)
+        guard reserveGlyphUpload() else { return nil }
         guard let location = atlasLocation(width: bitmapWidth, height: bitmapHeight, atlas: atlas) else {
             return nil
         }

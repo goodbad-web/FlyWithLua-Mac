@@ -132,9 +132,9 @@ local jjjFPS_nativeSync     = function() end
 function jjjFPS_param(param)
 	return jjjLib1.getParam(jjjFPS_plId, param)
 end
-function jjjFPS_setParam(param, value)
+function jjjFPS_setParam(param, value, syncNative)
 	jjjLib1.setParam(jjjFPS_plId, param, value)
-	if jjjFPS_nativeEnabled then
+	if syncNative ~= false and jjjFPS_nativeEnabled then
 		jjjFPS_nativeSync()
 	end
 end
@@ -840,13 +840,18 @@ end
 
 function jjjFPS_setAutoModeManual(mode)
 	if jjjFPS_saveMode then
-		jjjFPS_setParam("mode", mode)
+		-- A mode change updates both the persisted value and the runtime state.
+		-- Keep those updates together so native mode is configured only once.
+		jjjFPS_setParam("mode", mode, false)
 		jjjLib1.saveParams(jjjFPS_plId, "global")
 	end
-	jjjFPS_setAutoMode(mode)
+	jjjFPS_setAutoMode(mode, false)
+	if jjjFPS_nativeEnabled then
+		jjjFPS_nativeSync()
+	end
 end
 
-function jjjFPS_setAutoMode(mode)
+function jjjFPS_setAutoMode(mode, syncNative)
 	if jjjFPS_autoMode ~= mode then
 		jjjFPS_autoMode = mode
 		if mode == "on" then
@@ -854,10 +859,15 @@ function jjjFPS_setAutoMode(mode)
 			-- jjjFPS_QF = 0
 			-- jjjFPS_gpuDestQF = 0
 			-- jjjFPS_gpuQF = 0
-			jjjFPS_setAutoShDOnOff()
+			if not jjjFPS_nativeEnabled then
+				jjjFPS_setAutoShDOnOff()
+			end
 		end
 		if mode == "off" then
-			jjjFPS_setOrigDatarefs()
+			-- Native mode owns capture/restoration of these DataRefs.
+			if not jjjFPS_nativeEnabled then
+				jjjFPS_setOrigDatarefs()
+			end
 			jjjFPS_destQF = 0
 			jjjFPS_QF = 0
 			jjjFPS_gpuDestQF = 0
@@ -868,19 +878,23 @@ function jjjFPS_setAutoMode(mode)
 			jjjFPS_QF = -10
 			jjjFPS_gpuDestQF = -10
 			jjjFPS_gpuQF = -10
-			jjjFPS_setAutoShDOnOff()
+			if not jjjFPS_nativeEnabled then
+				jjjFPS_setAutoShDOnOff()
+			end
 		end
 		if mode == "min" then
 			jjjFPS_destQF = 10
 			jjjFPS_QF = 10
 			jjjFPS_gpuDestQF = 10
 			jjjFPS_gpuQF = 10
-			jjjFPS_setAutoShDOnOff()
+			if not jjjFPS_nativeEnabled then
+				jjjFPS_setAutoShDOnOff()
+			end
 		end
 		jjjFPS_lastChangeFSRtime = 0
 	end
 	jjjFPS_setMoveMode(0)
-	if jjjFPS_nativeEnabled then
+	if syncNative ~= false and jjjFPS_nativeEnabled then
 		jjjFPS_nativeSync()
 	end
 end
@@ -897,8 +911,8 @@ function jjjFPS_nativeApplyCommand(kind, key, value)
 		if mode == "auto" then mode = "on" end
 		if mode == "max-fps" then mode = "max" end
 		if mode == "max-quality" then mode = "min" end
-		jjjFPS_setParam("mode", mode)
-		jjjFPS_setAutoMode(mode)
+		jjjFPS_setParam("mode", mode, false)
+		jjjFPS_setAutoMode(mode, false)
 	elseif kind == "profile" then
 		jjjFPS_setProfile(key)
 	elseif kind == "param" then

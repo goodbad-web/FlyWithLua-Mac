@@ -387,6 +387,18 @@ public func l_measure_hidpi_string(L: OpaquePointer?) -> Int32 {
     return 1
 }
 
+@_cdecl("l_begin_hidpi_frame")
+public func l_begin_hidpi_frame(L: OpaquePointer?) -> Int32 {
+    lua_pushboolean(L, HUDTextRenderer.shared.beginFrame() ? 1 : 0)
+    return 1
+}
+
+@_cdecl("l_end_hidpi_frame")
+public func l_end_hidpi_frame(L: OpaquePointer?) -> Int32 {
+    lua_pushboolean(L, HUDTextRenderer.shared.endFrame() ? 1 : 0)
+    return 1
+}
+
 /// Registers the Swift-based module into the Lua state.
 @_cdecl("register_swift_bridge")
 public func register_swift_bridge(L: OpaquePointer?) {
@@ -424,6 +436,12 @@ public func register_swift_bridge(L: OpaquePointer?) {
 
     lua_pushcclosure(L, l_measure_hidpi_string, 0)
     lua_setfield(L, -2, "measure_hidpi_string")
+
+    lua_pushcclosure(L, l_begin_hidpi_frame, 0)
+    lua_setfield(L, -2, "begin_hidpi_frame")
+
+    lua_pushcclosure(L, l_end_hidpi_frame, 0)
+    lua_setfield(L, -2, "end_hidpi_frame")
     
     // Set as global 'mac_native'
     // LUA_GLOBALSINDEX is -10002 in Lua 5.1/LuaJIT

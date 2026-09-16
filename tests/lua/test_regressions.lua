@@ -357,6 +357,8 @@ local function test_hud_g1000()
 		if native ~= nil then
 			native.draws = native.draws or {}
 			native.measures = native.measures or {}
+			native.batch_begins = native.batch_begins or 0
+			native.batch_ends = native.batch_ends or 0
 			env.mac_native = {
 				draw_hidpi_string = function(x, y, text, size, family, weight)
 				native.draws[#native.draws + 1] = {
@@ -381,6 +383,14 @@ local function test_hud_g1000()
 				if native.measure_result == nil then return #tostring(text) * 7 end
 				return native.measure_result
 			end,
+				begin_hidpi_frame = function()
+					native.batch_begins = native.batch_begins + 1
+					return true
+				end,
+				end_hidpi_frame = function()
+					native.batch_ends = native.batch_ends + 1
+					return true
+				end,
 			}
 		end
 		env._hud_commands = commands
@@ -393,6 +403,16 @@ local function test_hud_g1000()
 	local draws = {}
 	local logs = {}
 	local env = make_environment(data, draws, logs)
+	local function update_hud(at_time)
+		if at_time ~= nil then
+			data["sim/time/total_running_time_sec"] = at_time
+		else
+			-- Stay just above the 0.20 s gate; decimal floating-point values
+			-- can otherwise land a few ulps below the threshold.
+			data["sim/time/total_running_time_sec"] = data["sim/time/total_running_time_sec"] + 0.21
+		end
+		env.hud_g1000.update()
+	end
 	local function drew(text)
 		for index = 1, #draws do
 			if draws[index] == text then return true end
@@ -408,7 +428,7 @@ local function test_hud_g1000()
 	assert(env._hud_callbacks.every_draw == "hud_g1000.draw()")
 	assert(env._hud_callbacks.mouse_click == "hud_g1000.handle_mouse_click()")
 
-	env.hud_g1000.update()
+	update_hud()
 	local snapshot = env.hud_g1000.state.snapshot
 	assert(snapshot.ias == 120)
 	assert(snapshot.altitude_ft == 4500)
@@ -421,6 +441,13 @@ local function test_hud_g1000()
 	assert(snapshot.autopilot.lateral == "HDG")
 	assert(snapshot.autopilot.vertical == "ALT")
 	assert(snapshot.missing_count == 0)
+	data["sim/cockpit2/gauges/indicators/airspeed_kts_pilot"] = 121
+	env.hud_g1000.update()
+	assert(env.hud_g1000.state.snapshot.ias == 120)
+	update_hud()
+	assert(env.hud_g1000.state.snapshot.ias == 121)
+	data["sim/cockpit2/gauges/indicators/airspeed_kts_pilot"] = 120
+	update_hud()
 	env.hud_g1000.draw()
 	assert(drew("120"))
 	assert(drew("04500"))
@@ -430,10 +457,11 @@ local function test_hud_g1000()
 
 	local native_draws = {}
 	local native_measures = {}
-	local native_env = make_environment(make_data(), {}, {}, {
+	local native_backend = {
 		draws = native_draws,
 		measures = native_measures,
-	})
+	}
+	local native_env = make_environment(make_data(), {}, {}, native_backend)
 	load_in_environment(hud_path, native_env)
 	native_env.hud_g1000.update()
 	native_env.hud_g1000.draw()
@@ -452,6 +480,11 @@ local function test_hud_g1000()
 	assert(saw_pro_label)
 	assert(#native_measures > 0)
 	assert(#native_env._legacy_draws == 0)
+	assert(native_backend.batch_begins > 0)
+	assert(native_backend.batch_begins == native_backend.batch_ends)
+	local native_measure_count = #native_measures
+	native_env.hud_g1000.draw()
+	assert(#native_measures == native_measure_count)
 
 	local failing_native = make_environment(make_data(), {}, {}, {draw_result = false})
 	load_in_environment(hud_path, failing_native)
@@ -477,7 +510,7 @@ local function test_hud_g1000()
 	assert(bottom_right.y == 20)
 
 	data["sim/cockpit2/gauges/indicators/airspeed_kts_pilot"] = nil
-	env.hud_g1000.update()
+	update_hud()
 	assert(env.hud_g1000.state.snapshot.ias == nil)
 	assert(env.hud_g1000.state.snapshot.alert.code == "data_unavailable")
 	env.hud_g1000.draw()
@@ -494,35 +527,35 @@ local function test_hud_g1000()
 	local transponder_labels = {[0] = "OFF", [1] = "STBY", [2] = "ON", [3] = "ALT", [4] = "TEST", [5] = "GND", [6] = "TA", [7] = "TA/RA"}
 	for mode = 0, 7 do
 		data["sim/cockpit2/radios/actuators/transponder_mode"] = mode
-		env.hud_g1000.update()
+		update_hud()
 		assert(env.hud_g1000.state.snapshot.transponder.text == transponder_labels[mode])
 	end
 	data["sim/cockpit2/radios/actuators/transponder_mode"] = 8
-	env.hud_g1000.update()
+	update_hud()
 	assert(env.hud_g1000.state.snapshot.transponder.text == "--")
 	data["sim/cockpit2/radios/actuators/transponder_mode"] = 3
 
 	data["sim/flightmodel2/gear/deploy_ratio"] = {[0] = 1, [1] = 0.5, [2] = 1}
 	data["sim/cockpit2/radios/actuators/transponder_mode"] = 3
-	env.hud_g1000.update()
+	update_hud()
 	assert(env.hud_g1000.state.snapshot.gear.status == "TRANSIT")
 
 	env.PLANE_ICAO = "C172"
 	data["sim/flightmodel2/gear/deploy_ratio"] = nil
 	data["sim/cockpit2/controls/gear_handle_down"] = 1
-	env.hud_g1000.update()
+	update_hud()
 	assert(env.hud_g1000.state.snapshot.gear.profile == "generic")
 	assert(env.hud_g1000.state.snapshot.gear.status == "DOWN")
 
 	data["sim/cockpit/warnings/annunciators/engine_fires"][0] = 1
 	data["sim/cockpit/warnings/annunciators/fuel_quantity"] = 1
-	env.hud_g1000.update()
+	update_hud()
 	assert(env.hud_g1000.state.snapshot.alert.code == "engine_fire")
 	data["sim/cockpit/warnings/annunciators/engine_fires"][0] = 0
-	env.hud_g1000.update()
+	update_hud()
 	assert(env.hud_g1000.state.snapshot.alert.code == "low_fuel")
 	data["sim/cockpit2/annunciators/master_warning"] = 1
-	env.hud_g1000.update()
+	update_hud()
 	assert(env.hud_g1000.state.snapshot.alert.code == "master_warning")
 	data["sim/cockpit2/annunciators/master_warning"] = 0
 	data["sim/cockpit/warnings/annunciators/fuel_quantity"] = 0
@@ -532,20 +565,20 @@ local function test_hud_g1000()
 	data["sim/flightmodel/position/y_agl"] = 100
 	data["sim/cockpit2/gauges/indicators/vvi_fpm_pilot"] = -500
 	data["sim/time/total_running_time_sec"] = 20
-	env.hud_g1000.update()
+	update_hud(20)
 	assert(env.hud_g1000.state.snapshot.alert.code == "low_alt_gear")
 
 	data["sim/cockpit2/controls/gear_handle_down"] = 1
 	data["sim/flightmodel/position/y_agl"] = 1200
 	data["sim/cockpit2/gauges/indicators/vvi_fpm_pilot"] = 100
 	data["sim/time/total_running_time_sec"] = 30
-	env.hud_g1000.update()
+	update_hud(30)
 	assert(env.hud_g1000.state.snapshot.alert ~= nil)
 	data["sim/time/total_running_time_sec"] = 30.3
-	env.hud_g1000.update()
+	update_hud(30.3)
 	assert(env.hud_g1000.state.snapshot.alert ~= nil)
 	data["sim/time/total_running_time_sec"] = 30.6
-	env.hud_g1000.update()
+	update_hud(30.6)
 	assert(env.hud_g1000.state.snapshot.alert == nil)
 
 	env.hud_g1000.position = {anchor = "bottom_left", offset_x = 18, offset_y = 28}
@@ -586,7 +619,7 @@ local function test_hud_g1000()
 	assert(saved_position:find("offset_x=1360", 1, true))
 	assert(saved_position:find("offset_y=896", 1, true))
 	env.hud_g1000.config.language = "ja"
-	env.hud_g1000.update()
+	update_hud()
 	env.hud_g1000.draw()
 	assert(drew("正常"))
 

@@ -30,6 +30,7 @@
 #include <memory>
 #include <sstream>
 #include <sys/stat.h>
+#include <cerrno>
 #include <unordered_map>
 
 lua_State* L = nullptr;
@@ -44,6 +45,8 @@ static int gFlyWithLuaMenuItem = -1;
 static XPLMMenuID gFlyWithLuaMenu = nullptr;
 static int gFlyWithLuaMacrosMenuItem = -1;
 static XPLMMenuID gFlyWithLuaMacrosMenu = nullptr;
+static int gFlyWithLuaScriptsMenuItem = -1;
+static XPLMMenuID gFlyWithLuaScriptsMenu = nullptr;
 static XPLMCommandRef gFlyWithLuaCommand = nullptr;
 static XPLMDataRef gAltitudeDataRef = nullptr;
 static XPLMDataRef gJoystickButtonDataRef = nullptr;
@@ -60,6 +63,18 @@ struct FlyWithLuaScriptFailure {
     std::string fileName;
     std::string message;
 };
+struct FlyWithLuaScriptMenuEntry {
+    std::string relativePath;
+    bool enabled = false;
+    int menuItemIndex = -1;
+};
+struct FlyWithLuaScriptMenuGroup {
+    std::string key;
+    XPLMMenuID menu = nullptr;
+    int menuItemIndex = -1;
+};
+static std::vector<std::unique_ptr<FlyWithLuaScriptMenuEntry>> gFlyWithLuaScriptMenuEntries;
+static std::vector<std::unique_ptr<FlyWithLuaScriptMenuGroup>> gFlyWithLuaScriptMenuGroups;
 struct FlyWithLuaCommandBinding {
     std::string name;
     std::string description;
@@ -163,8 +178,15 @@ static bool CreateMouseEventWindow();
 static void DestroyMouseEventWindow();
 static void FlyWithLuaMenuHandler(void*, void*);
 static void FlyWithLuaMacroMenuHandler(void*, void*);
+static void FlyWithLuaScriptsMenuHandler(void*, void*);
 static bool HasFlyWithLuaScriptExtension(const std::string& fileName);
+static bool IsExistingDirectory(const std::string& path);
 static bool IsRegularFile(const std::string& path);
+static bool IsSafeRelativeScriptPath(const std::string& path);
+static bool EnsureDirectoryTree(const std::string& path);
+static std::string GetMainDirectoryFromScripts();
+static std::string FlyWithLuaScriptMenuGroupForPath(const std::string& path);
+static void RefreshFlyWithLuaScriptsMenu();
 static void WriteDebugFile();
 static void ReturnQuarantinedScripts();
 static void SetDeveloperMode(bool enabled);
@@ -361,6 +383,21 @@ static void MarkFlyWithLuaMacrosMenuDirty() {
     RefreshFlyWithLuaMacrosMenu();
 }
 
+static void DestroyFlyWithLuaScriptsMenu() {
+    for (const auto& group : gFlyWithLuaScriptMenuGroups) {
+        if (group && group->menu) {
+            XPLMDestroyMenu(group->menu);
+        }
+    }
+    gFlyWithLuaScriptMenuGroups.clear();
+
+    if (gFlyWithLuaScriptsMenu) {
+        XPLMDestroyMenu(gFlyWithLuaScriptsMenu);
+        gFlyWithLuaScriptsMenu = nullptr;
+    }
+    gFlyWithLuaScriptMenuEntries.clear();
+}
+
 static void FlyWithLuaMenuHandler(void* /*inMenuRef*/, void* inItemRef) {
     const char* action = static_cast<const char*>(inItemRef);
     if (!action) {
@@ -392,6 +429,61 @@ static void FlyWithLuaMenuHandler(void* /*inMenuRef*/, void* inItemRef) {
         SetVerboseLoggingMode(flywithlua::verbose_logging_mode == 0);
         return;
     }
+}
+
+static void FlyWithLuaScriptsMenuHandler(void* /*inMenuRef*/, void* inItemRef) {
+    auto* entry = static_cast<FlyWithLuaScriptMenuEntry*>(inItemRef);
+    if (!entry) {
+        return;
+    }
+
+    const bool enable = !entry->enabled;
+    const std::string disabledRoot = flywithlua::JoinPath(GetMainDirectoryFromScripts(), "Scripts (disabled)");
+    const std::string sourceRoot = enable ? disabledRoot : flywithlua::scriptDir;
+    const std::string destinationRoot = enable ? flywithlua::scriptDir : disabledRoot;
+
+    if (!IsSafeRelativeScriptPath(entry->relativePath) ||
+        flywithlua::scriptDir.empty() ||
+        !IsRegularFile(flywithlua::JoinPath(sourceRoot, entry->relativePath))) {
+        XPLMDebugString(("FlyWithLua-Mac Warning: Cannot change script state for " + entry->relativePath + ".\n").c_str());
+        flywithlua_update_last_log_message("Could not change script state");
+        RefreshFlyWithLuaScriptsMenu();
+        return;
+    }
+
+    const std::string sourcePath = flywithlua::JoinPath(sourceRoot, entry->relativePath);
+    const std::string destinationPath = flywithlua::JoinPath(destinationRoot, entry->relativePath);
+    if (IsRegularFile(destinationPath) || IsExistingDirectory(destinationPath)) {
+        XPLMDebugString(("FlyWithLua-Mac Warning: Script destination already exists: " + destinationPath + "\n").c_str());
+        flywithlua_update_last_log_message("Script destination already exists");
+        RefreshFlyWithLuaScriptsMenu();
+        return;
+    }
+
+    const size_t lastSlash = destinationPath.find_last_of('/');
+    const std::string destinationDirectory = lastSlash == std::string::npos
+        ? std::string()
+        : destinationPath.substr(0, lastSlash);
+    if (!EnsureDirectoryTree(destinationDirectory)) {
+        XPLMDebugString(("FlyWithLua-Mac Warning: Could not create script directory: " + destinationDirectory + "\n").c_str());
+        flywithlua_update_last_log_message("Could not create script directory");
+        RefreshFlyWithLuaScriptsMenu();
+        return;
+    }
+
+    if (std::rename(sourcePath.c_str(), destinationPath.c_str()) != 0) {
+        XPLMDebugString(("FlyWithLua-Mac Warning: Could not " + std::string(enable ? "enable" : "disable") +
+                         " script " + entry->relativePath + ".\n").c_str());
+        flywithlua_update_last_log_message("Could not change script state");
+        RefreshFlyWithLuaScriptsMenu();
+        return;
+    }
+
+    entry->enabled = enable;
+    const std::string message = std::string(enable ? "Enabled script: " : "Disabled script: ") + entry->relativePath;
+    XPLMDebugString(("FlyWithLua-Mac: " + message + "; reloading scripts.\n").c_str());
+    flywithlua_update_last_log_message(message.c_str());
+    flywithlua_reload_scripts();
 }
 
 static void FlyWithLuaMacroMenuHandler(void* /*inMenuRef*/, void* inItemRef) {
@@ -725,6 +817,7 @@ static void ReturnQuarantinedScripts() {
     }
 
     flywithlua_update_last_log_message((std::string("Returned ") + std::to_string(movedCount) + " quarantined scripts").c_str());
+    RefreshFlyWithLuaScriptsMenu();
 }
 
 static void SetDeveloperMode(bool enabled) {
@@ -778,6 +871,10 @@ static void RegisterFlyWithLuaMenu() {
     }
 
     gReloadMenuItem = XPLMAppendMenuItem(gFlyWithLuaMenu, "Reload all Lua script files", (void*) "Reload", 1);
+    gFlyWithLuaScriptsMenuItem = XPLMAppendMenuItem(gFlyWithLuaMenu, "FlyWithLua Scripts", nullptr, 1);
+    if (gFlyWithLuaScriptsMenuItem >= 0) {
+        RefreshFlyWithLuaScriptsMenu();
+    }
     XPLMAppendMenuSeparator(gFlyWithLuaMenu);
     gFlyWithLuaMacrosMenuItem = XPLMAppendMenuItem(gFlyWithLuaMenu, "FlyWithLua Macros", nullptr, 1);
     if (gFlyWithLuaMacrosMenuItem >= 0) {
@@ -799,14 +896,15 @@ static void UnregisterFlyWithLuaMenu() {
         gFlyWithLuaCommand = nullptr;
     }
 
-    if (gFlyWithLuaMenu) {
-        XPLMDestroyMenu(gFlyWithLuaMenu);
-        gFlyWithLuaMenu = nullptr;
-    }
-
+    DestroyFlyWithLuaScriptsMenu();
     if (gFlyWithLuaMacrosMenu) {
         XPLMDestroyMenu(gFlyWithLuaMacrosMenu);
         gFlyWithLuaMacrosMenu = nullptr;
+    }
+
+    if (gFlyWithLuaMenu) {
+        XPLMDestroyMenu(gFlyWithLuaMenu);
+        gFlyWithLuaMenu = nullptr;
     }
 
     if (gPluginsMenu && gFlyWithLuaMenuItem >= 0) {
@@ -817,6 +915,8 @@ static void UnregisterFlyWithLuaMenu() {
     gFlyWithLuaMenu = nullptr;
     gFlyWithLuaMacrosMenuItem = -1;
     gFlyWithLuaMacrosMenu = nullptr;
+    gFlyWithLuaScriptsMenuItem = -1;
+    gFlyWithLuaScriptsMenu = nullptr;
     gReloadMenuItem = -1;
     gWriteDebugMenuItem = -1;
     gReturnQuarantineMenuItem = -1;
@@ -1514,6 +1614,194 @@ static void CollectScriptFilesRecursive(const std::string& directory, const std:
     for (const std::string& subdirectory : subdirectories) {
         std::string nextPrefix = relativePrefix.empty() ? subdirectory : relativePrefix + "/" + subdirectory;
         CollectScriptFilesRecursive(directory + "/" + subdirectory, nextPrefix, files);
+    }
+}
+
+static bool IsSafeRelativeScriptPath(const std::string& path) {
+    if (path.empty() || path.front() == '/' || path.find('\\') != std::string::npos) {
+        return false;
+    }
+
+    size_t componentStart = 0;
+    while (componentStart <= path.size()) {
+        const size_t separator = path.find('/', componentStart);
+        const size_t componentLength = separator == std::string::npos
+            ? path.size() - componentStart
+            : separator - componentStart;
+        const std::string component = path.substr(componentStart, componentLength);
+        if (component.empty() || component == "." || component == "..") {
+            return false;
+        }
+        if (separator == std::string::npos) {
+            break;
+        }
+        componentStart = separator + 1;
+    }
+
+    return true;
+}
+
+static bool EnsureDirectoryTree(const std::string& path) {
+    if (path.empty()) {
+        return false;
+    }
+
+    std::string current;
+    size_t componentStart = 0;
+    if (path.front() == '/') {
+        current = "/";
+        componentStart = 1;
+    }
+
+    while (componentStart <= path.size()) {
+        const size_t separator = path.find('/', componentStart);
+        const size_t componentLength = separator == std::string::npos
+            ? path.size() - componentStart
+            : separator - componentStart;
+        if (componentLength > 0) {
+            if (!current.empty() && current.back() != '/') {
+                current.push_back('/');
+            }
+            current.append(path, componentStart, componentLength);
+            if (mkdir(current.c_str(), 0755) != 0 && errno != EEXIST) {
+                return false;
+            }
+            if (!IsExistingDirectory(current)) {
+                return false;
+            }
+        }
+
+        if (separator == std::string::npos) {
+            break;
+        }
+        componentStart = separator + 1;
+    }
+
+    return IsExistingDirectory(path);
+}
+
+static std::string FlyWithLuaScriptMenuGroupForPath(const std::string& path) {
+    if (path.empty()) {
+        return "Other";
+    }
+
+    unsigned char first = static_cast<unsigned char>(path.front());
+    if (first >= 'a' && first <= 'z') {
+        first = static_cast<unsigned char>(first - ('a' - 'A'));
+    }
+    if (first >= 'A' && first <= 'Z') {
+        return std::string(1, static_cast<char>(first));
+    }
+    if (first >= '0' && first <= '9') {
+        return "0-9";
+    }
+    return "Other";
+}
+
+static void RefreshFlyWithLuaScriptsMenu() {
+    if (!gFlyWithLuaMenu || gFlyWithLuaScriptsMenuItem < 0) {
+        return;
+    }
+
+    DestroyFlyWithLuaScriptsMenu();
+    gFlyWithLuaScriptsMenu = XPLMCreateMenu("FlyWithLua Scripts", gFlyWithLuaMenu,
+                                            gFlyWithLuaScriptsMenuItem, FlyWithLuaScriptsMenuHandler, nullptr);
+    if (!gFlyWithLuaScriptsMenu) {
+        XPLMDebugString("FlyWithLua-Mac Warning: Could not create FlyWithLua Scripts submenu.\n");
+        return;
+    }
+
+    std::vector<std::string> enabledFiles;
+    std::vector<std::string> disabledFiles;
+    CollectScriptFilesRecursive(flywithlua::scriptDir, "", enabledFiles);
+    const std::string disabledDirectory = flywithlua::JoinPath(GetMainDirectoryFromScripts(), "Scripts (disabled)");
+    if (IsExistingDirectory(disabledDirectory)) {
+        CollectScriptFilesRecursive(disabledDirectory, "", disabledFiles);
+    }
+
+    struct ScriptPathState {
+        std::string path;
+        bool enabled;
+    };
+    std::vector<ScriptPathState> scripts;
+    scripts.reserve(enabledFiles.size() + disabledFiles.size());
+    for (const std::string& fileName : enabledFiles) {
+        scripts.push_back({fileName, true});
+    }
+    for (const std::string& fileName : disabledFiles) {
+        scripts.push_back({fileName, false});
+    }
+
+    std::sort(scripts.begin(), scripts.end(), [](const ScriptPathState& lhs, const ScriptPathState& rhs) {
+        const std::string lhsGroup = FlyWithLuaScriptMenuGroupForPath(lhs.path);
+        const std::string rhsGroup = FlyWithLuaScriptMenuGroupForPath(rhs.path);
+        auto groupOrder = [](const std::string& group) {
+            if (group == "0-9") {
+                return 0;
+            }
+            if (group.size() == 1 && group[0] >= 'A' && group[0] <= 'Z') {
+                return 1 + (group[0] - 'A');
+            }
+            return 27;
+        };
+        if (lhsGroup != rhsGroup) {
+            return groupOrder(lhsGroup) < groupOrder(rhsGroup);
+        }
+        if (lhs.path == rhs.path) {
+            return lhs.enabled > rhs.enabled;
+        }
+        return lhs.path < rhs.path;
+    });
+
+    if (scripts.empty()) {
+        XPLMAppendMenuItem(gFlyWithLuaScriptsMenu, "No Lua scripts found", nullptr, 0);
+        return;
+    }
+
+    for (const ScriptPathState& script : scripts) {
+        const std::string groupKey = FlyWithLuaScriptMenuGroupForPath(script.path);
+        FlyWithLuaScriptMenuGroup* group = nullptr;
+        for (const auto& existingGroup : gFlyWithLuaScriptMenuGroups) {
+            if (existingGroup && existingGroup->key == groupKey) {
+                group = existingGroup.get();
+                break;
+            }
+        }
+
+        if (!group) {
+            auto newGroup = std::make_unique<FlyWithLuaScriptMenuGroup>();
+            newGroup->key = groupKey;
+            newGroup->menuItemIndex = XPLMAppendMenuItem(gFlyWithLuaScriptsMenu, groupKey.c_str(), nullptr, 1);
+            if (newGroup->menuItemIndex < 0) {
+                XPLMDebugString(("FlyWithLua-Mac Warning: Could not append script group menu item: " + groupKey + "\n").c_str());
+                continue;
+            }
+            newGroup->menu = XPLMCreateMenu(("FlyWithLua Scripts " + groupKey).c_str(),
+                                            gFlyWithLuaScriptsMenu, newGroup->menuItemIndex,
+                                            FlyWithLuaScriptsMenuHandler, nullptr);
+            if (!newGroup->menu) {
+                XPLMDebugString(("FlyWithLua-Mac Warning: Could not create script group submenu: " + groupKey + "\n").c_str());
+                XPLMRemoveMenuItem(gFlyWithLuaScriptsMenu, newGroup->menuItemIndex);
+                continue;
+            }
+            group = newGroup.get();
+            gFlyWithLuaScriptMenuGroups.push_back(std::move(newGroup));
+        }
+
+        auto entry = std::make_unique<FlyWithLuaScriptMenuEntry>();
+        entry->relativePath = script.path;
+        entry->enabled = script.enabled;
+        FlyWithLuaScriptMenuEntry* entryPointer = entry.get();
+        std::string label = entry->relativePath;
+        if (!entry->enabled) {
+            label += " [disabled]";
+        }
+        entry->menuItemIndex = XPLMAppendMenuItem(group->menu, label.c_str(), entryPointer, 1);
+        if (entry->menuItemIndex >= 0) {
+            XPLMCheckMenuItem(group->menu, entry->menuItemIndex,
+                              entry->enabled ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+            gFlyWithLuaScriptMenuEntries.push_back(std::move(entry));
+        }
     }
 }
 
@@ -2903,6 +3191,7 @@ DataRef = dataref
     if (gMacroMenuNeedsRefresh || !gFlyWithLuaMacrosMenu) {
         RefreshFlyWithLuaMacrosMenu();
     }
+    RefreshFlyWithLuaScriptsMenu();
     return true;
 }
 

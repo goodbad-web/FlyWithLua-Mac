@@ -21,6 +21,8 @@ local AIRCRAFT_HEIGHT = 52
 local MIN_SCALE = 0.65
 local MAX_SCALE = 1.50
 local POSITION_LIMIT = 100000
+local UPDATE_INTERVAL_SECONDS = 0.20
+local TEXT_WIDTH_CACHE_LIMIT = 256
 
 local COLORS = {
     background = {0.02, 0.03, 0.05},
@@ -161,6 +163,12 @@ hud.state = {
     dragging = false,
     snapshot = nil,
     clock = 0,
+    last_update_time = nil,
+    text_width_cache = {
+        values = {},
+        keys = {},
+        next_slot = 1,
+    },
     filtered = {
         vvi = nil,
         wind_heading = nil,
@@ -746,10 +754,10 @@ local function update_alert(snapshot)
     snapshot.alert = hud.state.alert.active
 end
 
-local function update_snapshot()
+local function update_snapshot(sim_time_hint)
     local period = read_number("sim/time/framerate_period")
     local dt = period and period > 0 and clamp(period, 0.001, 0.25) or (1 / 60)
-    local sim_time = read_number("sim/time/total_running_time_sec")
+    local sim_time = sim_time_hint or read_number("sim/time/total_running_time_sec")
     if sim_time == nil then
         hud.state.clock = hud.state.clock + dt
         sim_time = hud.state.clock
@@ -984,19 +992,47 @@ local function legacy_text_width(text, font_size, layout)
     return #tostring(text) * font_size * 0.55
 end
 
+local function cache_text_width(cache_key, width)
+    local cache = hud.state.text_width_cache
+    if cache.values[cache_key] ~= nil then return end
+
+    if #cache.keys < TEXT_WIDTH_CACHE_LIMIT then
+        cache.keys[#cache.keys + 1] = cache_key
+    else
+        local slot = cache.next_slot
+        cache.values[cache.keys[slot]] = nil
+        cache.keys[slot] = cache_key
+        cache.next_slot = (slot % TEXT_WIDTH_CACHE_LIMIT) + 1
+    end
+    cache.values[cache_key] = width
+end
+
 local function text_width(text, font_size, layout, style)
+    text = tostring(text)
+    local cache_key = table.concat({
+        tostring(font_size),
+        tostring(layout and layout.scale or 1),
+        tostring(style or ""),
+        text,
+    }, "\31")
+    local cached_width = hud.state.text_width_cache.values[cache_key]
+    if cached_width ~= nil then
+        return cached_width
+    end
+
     local native = native_text_backend()
     if native ~= nil and layout ~= nil then
         local family, weight = native_text_style(style)
         local requested_size = font_size * layout.scale
         local ok, width = pcall(
             native.measure_hidpi_string,
-            tostring(text),
+            text,
             requested_size,
             family,
             weight
         )
         if ok and is_finite_number(width) then
+            cache_text_width(cache_key, width)
             return width
         end
         if not ok then
@@ -1005,7 +1041,9 @@ local function text_width(text, font_size, layout, style)
             disable_native_text("measure returned no width")
         end
     end
-    return legacy_text_width(text, font_size, layout)
+    local width = legacy_text_width(text, font_size, layout)
+    cache_text_width(cache_key, width)
+    return width
 end
 
 local function draw_legacy_text(actual_font, x, y, text)
@@ -1053,6 +1091,27 @@ local function draw_centered(font_size, x, y, width, text, color, layout, style)
     local measured = text_width(text, font_size, layout, style)
     local centered_x = x + (width - measured / layout.scale) * 0.5
     draw_text(font_size, centered_x, y, text, color, layout, style)
+end
+
+local function draw_text_group(draw_group)
+    local native = native_text_backend()
+    local batch_started = false
+    if native ~= nil and type(native.begin_hidpi_frame) == "function" then
+        local batch_ok, started = pcall(native.begin_hidpi_frame)
+        batch_started = batch_ok and started == true
+    end
+
+    local ok, err = pcall(draw_group)
+
+    if batch_started and type(native.end_hidpi_frame) == "function" then
+        local end_ok, ended = pcall(native.end_hidpi_frame)
+        if not end_ok then
+            disable_native_text(ended)
+        elseif ended == false then
+            disable_native_text("batched draw returned false")
+        end
+    end
+    if not ok then error(err) end
 end
 
 local function level_color(level)
@@ -1109,16 +1168,18 @@ local function draw_alert_bar(snapshot, layout)
         layout.x + layout.width - 1,
         layout.y + layout.height - 1
     )
-    draw_text(12, 10, BASE_HEIGHT - ALERT_HEIGHT + 7, message, fill, layout, "emphasis")
-    if snapshot and snapshot.autopilot then
-        draw_text(10, 370, BASE_HEIGHT - ALERT_HEIGHT + 8,
-            l.ap .. " " .. snapshot.autopilot.text,
-            level_color(snapshot.autopilot.level), layout, "status")
-    end
-    if hud.state.edit_mode then
-        draw_text(10, BASE_WIDTH - 102, BASE_HEIGHT - ALERT_HEIGHT + 8,
-            l.edit_mode, COLORS.caution, layout, "status")
-    end
+    draw_text_group(function()
+        draw_text(12, 10, BASE_HEIGHT - ALERT_HEIGHT + 7, message, fill, layout, "emphasis")
+        if snapshot and snapshot.autopilot then
+            draw_text(10, 370, BASE_HEIGHT - ALERT_HEIGHT + 8,
+                l.ap .. " " .. snapshot.autopilot.text,
+                level_color(snapshot.autopilot.level), layout, "status")
+        end
+        if hud.state.edit_mode then
+            draw_text(10, BASE_WIDTH - 102, BASE_HEIGHT - ALERT_HEIGHT + 8,
+                l.edit_mode, COLORS.caution, layout, "status")
+        end
+    end)
 end
 
 local function draw_system_row(snapshot, layout)
@@ -1207,15 +1268,19 @@ local function draw_overlay()
     graphics.draw_line(layout.x, layout.y + (BASE_HEIGHT - ALERT_HEIGHT) * layout.scale, layout.x + layout.width, layout.y + (BASE_HEIGHT - ALERT_HEIGHT) * layout.scale, 1)
 
     draw_alert_bar(snapshot, layout)
-    draw_system_row(snapshot, layout)
-    draw_flight_row(snapshot, layout)
-    draw_aircraft_row(snapshot, layout)
+    draw_text_group(function()
+        draw_system_row(snapshot, layout)
+        draw_flight_row(snapshot, layout)
+        draw_aircraft_row(snapshot, layout)
+    end)
 
     if hud.state.edit_mode then
         set_color(COLORS.caution, 0.85)
         graphics.draw_line(layout.x - 2, layout.y - 2, layout.x + layout.width + 2, layout.y - 2, 2)
         graphics.draw_line(layout.x - 2, layout.y + layout.height + 2, layout.x + layout.width + 2, layout.y + layout.height + 2, 2)
-        draw_text(10, 10, 1, l.drag_hint, COLORS.caution, layout)
+        draw_text_group(function()
+            draw_text(10, 10, 1, l.drag_hint, COLORS.caution, layout)
+        end)
     end
 end
 
@@ -1291,7 +1356,26 @@ end
 
 function hud.update()
     sync_legacy_visibility()
-    local ok, err = pcall(update_snapshot)
+    if not hud.state.visible then
+        -- Do not keep polling dozens of DataRefs for a hidden overlay.
+        hud.state.last_update_time = nil
+        return
+    end
+
+    -- Keep the display readable and avoid coupling telemetry polling to the
+    -- simulator frame rate. One clock DataRef is read per frame; the full
+    -- snapshot and its numeric values are refreshed at 5 Hz.
+    local sim_time = read_number("sim/time/total_running_time_sec")
+    local clock = sim_time or os.clock()
+    local last_update_time = hud.state.last_update_time
+    if last_update_time ~= nil
+        and clock >= last_update_time
+        and clock - last_update_time < UPDATE_INTERVAL_SECONDS then
+        return
+    end
+    hud.state.last_update_time = clock
+
+    local ok, err = pcall(update_snapshot, sim_time)
     if not ok then
         log_once("update_error", "update skipped: " .. tostring(err))
     end
@@ -1299,6 +1383,7 @@ end
 
 function hud.draw()
     sync_legacy_visibility()
+    if not hud.state.visible then return end
     local ok, err = pcall(draw_overlay)
     if not ok then
         log_once("draw_error", "draw skipped: " .. tostring(err))
