@@ -1442,4 +1442,5 @@ create_command("FlyWithLua/HUD-G1000/reset_position", "Reset HUD-G1000 position"
 
 do_every_frame("hud_g1000.update()")
 do_every_draw("hud_g1000.draw()")
+do_every_panel_draw("hud_g1000.draw()")
 do_on_mouse_click("hud_g1000.handle_mouse_click()")

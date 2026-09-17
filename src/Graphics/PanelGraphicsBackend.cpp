@@ -444,7 +444,7 @@ void unregisterWindow(XPLMWindowID window) {
 void disableForSession(const char* reason) {
     if (gState.panelEnabled && !gState.failureLogged) {
         gState.failureLogged = true;
-        logMessage(std::string("disabled for session; no OpenGL fallback: ") +
+        logMessage(std::string("disabled for session; affected windows will use OpenGL: ") +
                    (reason != nullptr ? reason : "unknown failure"));
     }
     gState.panelEnabled = false;

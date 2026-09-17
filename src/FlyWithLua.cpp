@@ -180,6 +180,8 @@ static int gMouseEventWindowRight = 0;
 static int gMouseEventWindowBottom = 0;
 static bool gMouseEventWindowGeometryInitialized = false;
 static bool gMouseEventWindowPanelGraphics = false;
+static bool gMouseEventWindowVisibilityPending = false;
+static bool gMouseEventWindowDesiredVisible = true;
 static bool gMouseClickCaptured = false;
 static float gOftenAccumulator = 0.0f;
 static float gSometimesAccumulator = 0.0f;
@@ -1442,6 +1444,24 @@ static bool IsVREnabled() {
     return vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
 }
 
+class OpenGLDrawStateScope {
+public:
+    OpenGLDrawStateScope(): previousLuaDrawingState_(flywithlua::WeAreNotInDrawingState) {
+        XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
+        flywithlua::WeAreNotInDrawingState = false;
+    }
+
+    ~OpenGLDrawStateScope() {
+        flywithlua::WeAreNotInDrawingState = previousLuaDrawingState_;
+    }
+
+    OpenGLDrawStateScope(const OpenGLDrawStateScope&) = delete;
+    OpenGLDrawStateScope& operator=(const OpenGLDrawStateScope&) = delete;
+
+private:
+    bool previousLuaDrawingState_;
+};
+
 static void MouseEventWindowDraw(XPLMWindowID inWindowID, void* /*inRefcon*/) {
     if (!flywithlua::LuaIsRunning) {
         return;
@@ -1459,17 +1479,21 @@ static void MouseEventWindowDraw(XPLMWindowID inWindowID, void* /*inRefcon*/) {
             return;
         }
         UpdateLuaMouseGlobals();
-        RunLuaCallbackEntries(LuaCallbackKind::CompatPanelDraw, gPanelDrawCallbacks,
-                              "do_every_draw[panel]");
         RunLuaCallbackEntries(LuaCallbackKind::PanelDraw, gPanelApiDrawCallbacks,
                               "do_every_panel_draw");
+        if (!flywithlua::panel::enabled()) {
+            return;
+        }
         threejfps_draw_hud();
         return;
     }
 
+    OpenGLDrawStateScope graphicsScope;
     UpdateLuaMouseGlobals();
-    RunLuaCallbackEntries(LuaCallbackKind::CompatPanelDraw, gPanelDrawCallbacks,
-                          "do_every_draw[opengl-fallback]");
+    if (IsVREnabled()) {
+        RunLuaCallbackEntries(LuaCallbackKind::CompatPanelDraw, gPanelDrawCallbacks,
+                              "do_every_draw[opengl-vr]");
+    }
     threejfps_draw_hud();
 }
 
@@ -1637,6 +1661,14 @@ static bool CreateMouseEventWindow() {
 
 static void ReconcileMouseEventWindowBackend() {
     if (!gMouseEventWindow) {
+        if (!CreateMouseEventWindow()) {
+            return;
+        }
+        UpdateMouseEventWindowGeometry();
+        if (gMouseEventWindowVisibilityPending) {
+            XPLMSetWindowIsVisible(gMouseEventWindow, gMouseEventWindowDesiredVisible ? 1 : 0);
+            gMouseEventWindowVisibilityPending = false;
+        }
         return;
     }
 
@@ -1645,7 +1677,8 @@ static void ReconcileMouseEventWindowBackend() {
         return;
     }
 
-    const bool wasVisible = XPLMGetWindowIsVisible(gMouseEventWindow) != 0;
+    gMouseEventWindowDesiredVisible = XPLMGetWindowIsVisible(gMouseEventWindow) != 0;
+    gMouseEventWindowVisibilityPending = true;
 
     DestroyMouseEventWindow();
     if (!CreateMouseEventWindow()) {
@@ -1656,7 +1689,8 @@ static void ReconcileMouseEventWindowBackend() {
     // bounds. Re-apply that invariant instead of reading 2D geometry from a
     // window that may have just been in VR.
     UpdateMouseEventWindowGeometry();
-    XPLMSetWindowIsVisible(gMouseEventWindow, wasVisible ? 1 : 0);
+    XPLMSetWindowIsVisible(gMouseEventWindow, gMouseEventWindowDesiredVisible ? 1 : 0);
+    gMouseEventWindowVisibilityPending = false;
 }
 
 static void DestroyMouseEventWindow() {
@@ -3835,7 +3869,8 @@ int FlyWithLuaDrawCallback(XPLMDrawingPhase /*inPhase*/, int /*inIsBefore*/, voi
     }
 
     const bool runLegacyGroup = HasEnabledLuaCallbacks(LuaCallbackKind::Draw, gDrawCallbacks);
-    const bool runPanelFallbackGroup = !flywithlua::panel::enabled() &&
+    const bool runPanelFallbackGroup = !IsVREnabled() && !flywithlua::panel::enabled() &&
+                                       !gMouseEventWindowPanelGraphics &&
                                        HasEnabledLuaCallbacks(LuaCallbackKind::CompatPanelDraw,
                                                               gPanelDrawCallbacks);
     if (!runLegacyGroup && !runPanelFallbackGroup) {
@@ -3844,9 +3879,7 @@ int FlyWithLuaDrawCallback(XPLMDrawingPhase /*inPhase*/, int /*inIsBefore*/, voi
 
     UpdateLuaMouseGlobals();
 
-    // Establish the 2D state expected by legacy FlyWithLua drawing scripts.
-    XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
-    flywithlua::WeAreNotInDrawingState = false;
+    OpenGLDrawStateScope graphicsScope;
     if (runLegacyGroup) {
         RunLuaCallbackEntries(LuaCallbackKind::Draw, gDrawCallbacks, "do_every_draw");
     }
@@ -3854,7 +3887,6 @@ int FlyWithLuaDrawCallback(XPLMDrawingPhase /*inPhase*/, int /*inIsBefore*/, voi
         RunLuaCallbackEntries(LuaCallbackKind::CompatPanelDraw, gPanelDrawCallbacks,
                               "do_every_draw[panel-fallback]");
     }
-    flywithlua::WeAreNotInDrawingState = true;
     return 1;
 }
 

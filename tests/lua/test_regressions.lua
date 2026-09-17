@@ -135,6 +135,7 @@ local function test_landing_rate()
 		env[name] = 0
 	end
 	env.do_every_draw = function() end
+	env.do_every_panel_draw = function() end
 	env.do_often = function() end
 	env.add_macro = function() end
 	env.logMsg = function() end
@@ -240,6 +241,7 @@ local function test_hud()
 		return require(name)
 	end
 	env.do_every_draw = function() end
+	env.do_every_panel_draw = function() end
 	env.do_on_mouse_click = function() end
 	env.do_on_mouse_wheel = function() end
 	env.dataref = function(name)
@@ -347,6 +349,7 @@ local function test_hud_g1000()
 		end
 		env.do_every_frame = function(code) callbacks.every_frame = code end
 		env.do_every_draw = function(code) callbacks.every_draw = code end
+		env.do_every_panel_draw = function(code) callbacks.every_panel_draw = code end
 		env.do_on_mouse_click = function(code) callbacks.mouse_click = code end
 		env.logMsg = function(message) logs[#logs + 1] = message end
 		env.measure_string = function(text) return #tostring(text) * 7 end
@@ -427,6 +430,7 @@ local function test_hud_g1000()
 	assert(env._hud_commands["FlyWithLua/HUD-G1000/reset_position"])
 	assert(env._hud_callbacks.every_frame == "hud_g1000.update()")
 	assert(env._hud_callbacks.every_draw == "hud_g1000.draw()")
+	assert(env._hud_callbacks.every_panel_draw == "hud_g1000.draw()")
 	assert(env._hud_callbacks.mouse_click == "hud_g1000.handle_mouse_click()")
 
 	update_hud()
@@ -697,6 +701,7 @@ local function test_jjjlib_patch_safety()
 	end
 	env.logMsg = function() end
 	env.do_every_draw = function() end
+	env.do_every_panel_draw = function() end
 	env.do_on_mouse_click = function() end
 	env.do_on_mouse_wheel = function() end
 	install_module_environment(env, "jjjLib1")

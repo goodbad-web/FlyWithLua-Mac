@@ -30,6 +30,35 @@
 
 namespace flwnd {
 
+namespace {
+
+class OpenGLDrawStateScope {
+public:
+    explicit OpenGLDrawStateScope(bool active):
+        active_(active), previousLuaDrawingState_(flywithlua::WeAreNotInDrawingState) {
+        if (!active_) {
+            return;
+        }
+        XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
+        flywithlua::WeAreNotInDrawingState = false;
+    }
+
+    ~OpenGLDrawStateScope() {
+        if (active_) {
+            flywithlua::WeAreNotInDrawingState = previousLuaDrawingState_;
+        }
+    }
+
+    OpenGLDrawStateScope(const OpenGLDrawStateScope&) = delete;
+    OpenGLDrawStateScope& operator=(const OpenGLDrawStateScope&) = delete;
+
+private:
+    bool active_;
+    bool previousLuaDrawingState_;
+};
+
+} // namespace
+
 /**
  * A function, which returns a Lua callback function.
  *
@@ -247,11 +276,7 @@ void LuaSetOnDrawCallback(sol::light<FloatingWindow> wnd, CallbackProvider const
         int left, top, right, bottom;
         XPLMGetWindowGeometry(window, &left, &top, &right, &bottom);
 
-        if (!flywithlua::panel::panelDrawing()) {
-            XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
-        }
-
-        flywithlua::WeAreNotInDrawingState = false;
+        OpenGLDrawStateScope graphicsScope(!flywithlua::panel::panelDrawing());
         flywithlua::CopyDataRefsToLua();
 
         auto on_draw = on_draw_provider();
@@ -268,7 +293,6 @@ void LuaSetOnDrawCallback(sol::light<FloatingWindow> wnd, CallbackProvider const
         }
 
         flywithlua::CopyDataRefsToXPlane();
-        flywithlua::WeAreNotInDrawingState = true;
     });
 }
 
@@ -835,6 +859,13 @@ bool FindAndQuarantine (lua_State *L)
 void onFlightLoop() {
     for (auto it = floatingWindows.begin(); it != floatingWindows.end(); ) {
         auto wnd = *it;
+        if (wnd->getXWindow() == nullptr) {
+            // A content-type recreation can fail transiently. Keep the Lua
+            // object alive so FloatingWindow can retry on the next loop.
+            wnd->moveFromOrToVR();
+            ++it;
+            continue;
+        }
         if (!wnd->getIsCmdVisible() && !wnd->isVisible()) {
             wnd->reportClose();
             it = floatingWindows.erase(it);

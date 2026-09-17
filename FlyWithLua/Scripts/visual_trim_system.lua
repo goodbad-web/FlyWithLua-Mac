@@ -93,6 +93,7 @@ function show_visual_trim()
 end
 
 do_every_draw("show_visual_trim()")
+do_every_panel_draw("show_visual_trim()")
 
 -- reset the trimming
 function vts_reset_trim()

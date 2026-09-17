@@ -119,20 +119,43 @@ void FloatingWindow::createWindow(bool usePanelGraphics) {
 }
 
 void FloatingWindow::recreateWindow(bool usePanelGraphics) {
+    const auto finishRecreation = [this]() {
+        const bool vrEnabled = vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
+        applyVRPositioning(vrEnabled);
+        if (vrEnabled && savedVRGeometryValid) {
+            XPLMSetWindowGeometryVR(window, savedVRWidth, savedVRHeight);
+        } else if (!vrEnabled) {
+            restore2DGeometry();
+        }
+        if (savedVisibilityValid) {
+            XPLMSetWindowIsVisible(window, savedVisibilityBeforeRecreate ? 1 : 0);
+            savedVisibilityValid = false;
+        }
+    };
+
     if (window == nullptr) {
-        createWindow(usePanelGraphics);
+        try {
+            createWindow(usePanelGraphics);
+        } catch (const std::exception& error) {
+            // Keep the object alive so the next flight loop can retry the
+            // content-type recreation instead of deleting the Lua window.
+            panelGraphics = !usePanelGraphics;
+            flywithlua::logMsg(logToDevCon,
+                               std::string("Floating window recreation deferred: ") + error.what());
+            return;
+        }
+        finishRecreation();
         return;
     }
 
     const bool wasInVR = isInVR;
-    const bool wasVisible = XPLMGetWindowIsVisible(window) != 0;
+    savedVisibilityBeforeRecreate = XPLMGetWindowIsVisible(window) != 0;
+    savedVisibilityValid = true;
     if (wasInVR) {
         XPLMGetWindowGeometryVR(window, &savedVRWidth, &savedVRHeight);
         savedVRGeometryValid = savedVRWidth > 0 && savedVRHeight > 0;
     } else {
-        XPLMGetWindowGeometry(window, &saved2DLeft, &saved2DTop,
-                              &saved2DRight, &saved2DBottom);
-        saved2DGeometryValid = saved2DRight > saved2DLeft && saved2DTop > saved2DBottom;
+        capture2DGeometry();
     }
 
     if (panelGraphics) {
@@ -141,17 +164,58 @@ void FloatingWindow::recreateWindow(bool usePanelGraphics) {
     XPLMDestroyWindow(window);
     window = nullptr;
 
-    createWindow(usePanelGraphics);
+    try {
+        createWindow(usePanelGraphics);
+    } catch (const std::exception& error) {
+        // The old window has already been destroyed because XPLM content type
+        // is immutable. Preserve all saved state and retry on the next loop.
+        panelGraphics = !usePanelGraphics;
+        flywithlua::logMsg(logToDevCon,
+                           std::string("Floating window recreation deferred: ") + error.what());
+        return;
+    }
+    finishRecreation();
+}
 
-    const bool vrEnabled = vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
-    applyVRPositioning(vrEnabled);
-    if (vrEnabled && savedVRGeometryValid) {
-        XPLMSetWindowGeometryVR(window, savedVRWidth, savedVRHeight);
-    } else if (!vrEnabled && saved2DGeometryValid) {
+void FloatingWindow::capture2DGeometry() {
+    if (window == nullptr) {
+        return;
+    }
+
+    savedVRGeometryValid = false;
+    saved2DWasPoppedOut = XPLMWindowIsPoppedOut(window) != 0;
+    saved2DGeometryValid = false;
+    saved2DOSGeometryValid = false;
+    if (saved2DWasPoppedOut) {
+        XPLMGetWindowGeometryOS(window, &saved2DOSLeft, &saved2DOSTop,
+                                &saved2DOSRight, &saved2DOSBottom);
+        saved2DOSGeometryValid = saved2DOSRight > saved2DOSLeft &&
+                                 saved2DOSTop > saved2DOSBottom;
+        return;
+    }
+
+    XPLMGetWindowGeometry(window, &saved2DLeft, &saved2DTop,
+                          &saved2DRight, &saved2DBottom);
+    saved2DGeometryValid = saved2DRight > saved2DLeft && saved2DTop > saved2DBottom;
+}
+
+void FloatingWindow::restore2DGeometry() {
+    if (window == nullptr) {
+        return;
+    }
+
+    if (saved2DWasPoppedOut && saved2DOSGeometryValid) {
+        XPLMSetWindowPositioningMode(window, xplm_WindowPopOut, -1);
+        XPLMSetWindowGeometryOS(window, saved2DOSLeft, saved2DOSTop,
+                                saved2DOSRight, saved2DOSBottom);
+        return;
+    }
+
+    if (saved2DGeometryValid) {
+        XPLMSetWindowPositioningMode(window, xplm_WindowPositionFree, -1);
         XPLMSetWindowGeometry(window, saved2DLeft, saved2DTop,
                               saved2DRight, saved2DBottom);
     }
-    XPLMSetWindowIsVisible(window, wasVisible ? 1 : 0);
 }
 
 void FloatingWindow::setDrawCallback(DrawCallback cb) {
@@ -266,27 +330,30 @@ bool FloatingWindow::getIsCmdVisible() {
 
 void FloatingWindow::moveFromOrToVR() {
     const bool vrEnabled = vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
-    if (panelGraphicsRequested) {
-        // Panel Graphics is the required ImGui backend. It cannot be
-        // recreated as an OpenGL window when VR is active because the
-        // XPLM content type is immutable. Keep the Panel window and hide it
-        // until 2D mode returns.
-        if (vrEnabled) {
-            if (!panelSuppressedForVR) {
-                panelVisibilityBeforeVR = XPLMGetWindowIsVisible(window) != 0;
-                panelSuppressedForVR = true;
-                XPLMSetWindowIsVisible(window, 0);
-            }
-            return;
-        }
-        if (panelSuppressedForVR) {
-            panelSuppressedForVR = false;
-            XPLMSetWindowIsVisible(window, panelVisibilityBeforeVR ? 1 : 0);
-        }
+    const bool shouldUsePanelGraphics = panelGraphicsRequested &&
+        flywithlua::panel::enabled() && !vrEnabled;
+    if (window == nullptr) {
+        recreateWindow(shouldUsePanelGraphics);
         return;
     }
 
+    if (vrEnabled && !isInVR) {
+        capture2DGeometry();
+    }
+
+    // XPLMWindow contentType is fixed at creation time. Switch between the
+    // Panel Graphics and OpenGL implementations at the safe flight-loop
+    // boundary instead of trying to draw through the wrong API.
+    if (shouldUsePanelGraphics != panelGraphics) {
+        recreateWindow(shouldUsePanelGraphics);
+        return;
+    }
+
+    const bool leavingVR = !vrEnabled && isInVR;
     applyVRPositioning(vrEnabled);
+    if (leavingVR) {
+        restore2DGeometry();
+    }
 }
 
 void FloatingWindow::applyVRPositioning(bool vrEnabled) {
@@ -299,11 +366,6 @@ void FloatingWindow::applyVRPositioning(bool vrEnabled) {
         // Our window is still in VR but X-Plane switched to 2D
         XPLMSetWindowPositioningMode(window, xplm_WindowPositionFree, -1);
         isInVR = false;
-        
-        int winLeft, winTop, winRight, winBot;
-        XPLMGetScreenBoundsGlobal(&winLeft, &winTop, &winRight, &winBot);
-
-        XPLMSetWindowGeometry(window, winLeft + 100, winBot + 100 + height, winLeft + 100 + width, winBot + 100);
     }
 }
 
@@ -356,11 +418,13 @@ void FloatingWindow::reportClose() {
 }
 
 bool FloatingWindow::isVisible() const {
-    return XPLMGetWindowIsVisible(window);
+    return window != nullptr && XPLMGetWindowIsVisible(window) != 0;
 }
 
 void FloatingWindow::setVisible(bool visible) {
-    XPLMSetWindowIsVisible(window, visible);
+    if (window != nullptr) {
+        XPLMSetWindowIsVisible(window, visible ? 1 : 0);
+    }
 }
 
 bool FloatingWindow::onRightClick(int x, int y, XPLMMouseStatus status) {
@@ -398,10 +462,12 @@ std::uint64_t FloatingWindow::ownerScriptId() const {
 }
 
 FloatingWindow::~FloatingWindow() {
-    if (panelGraphics) {
-        flywithlua::panel::unregisterWindow(window);
+    if (window != nullptr) {
+        if (panelGraphics) {
+            flywithlua::panel::unregisterWindow(window);
+        }
+        XPLMDestroyWindow(window);
     }
-    XPLMDestroyWindow(window);
 }
 
 } // namespace flwnd

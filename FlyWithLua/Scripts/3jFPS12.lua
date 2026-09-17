@@ -23,6 +23,7 @@ require("graphics")
 require("jjjLib1")
 if jjjLib1.version == nil or jjjLib1.version() < 1.7 then
 	do_every_draw('draw_string(20, SCREEN_HIGHT - 104, "Plugin ' .. jjjFPS_pluginName .. ': Requires library \'3jLib1\' version 1.7 or higher! Please search for \'3jLib1\' on x-plane.org, download and install current version of library.")')
+	do_every_panel_draw('draw_string(20, SCREEN_HIGHT - 104, "Plugin ' .. jjjFPS_pluginName .. ': Requires library \'3jLib1\' version 1.7 or higher! Please search for \'3jLib1\' on x-plane.org, download and install current version of library.")')
 	jjjFPS_3jFPS12Running = false
 	return
 end
@@ -2759,6 +2760,7 @@ if type(threejfps_register) == "function" and jjjFPS_nativeAB ~= "legacy" then
 else
 	do_every_frame("jjjFPS_main()")
 	do_every_draw("jjjFPS_draw()")
+	do_every_panel_draw("jjjFPS_draw()")
 end
 do_sometimes("jjjFPS_retryDataRefs()")
 do_sometimes("jjjFPS_check()")

@@ -75,14 +75,20 @@ private:
     bool panelGraphics = false;
     std::uint64_t ownerScript = 0;
     bool isInVR = false;
-    bool panelSuppressedForVR = false;
-    bool panelVisibilityBeforeVR = false;
+    bool savedVisibilityBeforeRecreate = true;
+    bool savedVisibilityValid = false;
 
     int saved2DLeft = 0;
     int saved2DTop = 0;
     int saved2DRight = 0;
     int saved2DBottom = 0;
     bool saved2DGeometryValid = false;
+    bool saved2DWasPoppedOut = false;
+    int saved2DOSLeft = 0;
+    int saved2DOSTop = 0;
+    int saved2DOSRight = 0;
+    int saved2DOSBottom = 0;
+    bool saved2DOSGeometryValid = false;
     int savedVRWidth = 0;
     int savedVRHeight = 0;
     bool savedVRGeometryValid = false;
@@ -104,6 +110,8 @@ private:
     
     void createWindow(bool usePanelGraphics);
     void recreateWindow(bool usePanelGraphics);
+    void capture2DGeometry();
+    void restore2DGeometry();
     void applyVRPositioning(bool vrEnabled);
 };
 

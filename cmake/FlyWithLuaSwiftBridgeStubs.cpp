@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -453,9 +454,15 @@ static int luaMeasureString(lua_State* state) {
 // available there and deliberately fall back to the existing XPLM fonts.
 static int luaDrawHiDPIString(lua_State* state) {
     const char* text = lua_tolstring(state, 3, nullptr);
-    if (text == nullptr || !lua_isnumber(state, 1) || !lua_isnumber(state, 2)) {
+    const double x = lua_tonumber(state, 1);
+    const double y = lua_tonumber(state, 2);
+    const double logicalSize = lua_tonumber(state, 4);
+    if (text == nullptr || !lua_isnumber(state, 1) || !lua_isnumber(state, 2) ||
+        !std::isfinite(x) || !std::isfinite(y) || !lua_isnumber(state, 4) ||
+        !std::isfinite(logicalSize) || logicalSize <= 0.0) {
         lua_pushboolean(state, 0);
-        return 1;
+        lua_pushboolean(state, 0);
+        return 2;
     }
 
     const char* family = nullptr;
@@ -464,16 +471,17 @@ static int luaDrawHiDPIString(lua_State* state) {
     }
 
     if (flywithlua::panel::panelDrawing()) {
-        const int x = static_cast<int>(lua_tonumber(state, 1));
-        const int y = static_cast<int>(lua_tonumber(state, 2));
-        const float size = static_cast<float>(lua_tonumber(state, 4));
-        const int rendered = flywithlua_panel_draw_hidpi_text(x, y, text, size,
+        const int drawX = static_cast<int>(x);
+        const int drawY = static_cast<int>(y);
+        const float size = static_cast<float>(logicalSize);
+        const int rendered = flywithlua_panel_draw_hidpi_text(drawX, drawY, text, size,
                                                                family != nullptr ? family : "sf_pro_text",
                                                                lua_gettop(state) >= 6
                                                                    ? static_cast<int>(lua_tointeger(state, 6))
                                                                    : 400);
         lua_pushboolean(state, rendered != 0);
-        return 1;
+        lua_pushboolean(state, 0);
+        return 2;
     }
 
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -485,7 +493,8 @@ static int luaDrawHiDPIString(lua_State* state) {
                    nullptr,
                    fontIDForHiDPIFamily(family));
     lua_pushboolean(state, 1);
-    return 1;
+    lua_pushboolean(state, 0);
+    return 2;
 }
 
 static int luaMeasureHiDPIString(lua_State* state) {

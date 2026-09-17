@@ -17,6 +17,7 @@
 #include <XPLMGraphics.h>
 #include <XPLMUtilities.h>
 #include "../Graphics/PanelGraphicsBackend.h"
+#include "../FlyWithLua.h"
 #include <cstring>
 #include <cstdint>
 #include <cctype>
@@ -26,6 +27,35 @@
 #include "FLWIntegration.h"
 
 namespace flwnd {
+
+namespace {
+
+class OpenGLDrawStateScope {
+public:
+    explicit OpenGLDrawStateScope(bool active):
+        active_(active), previousLuaDrawingState_(flywithlua::WeAreNotInDrawingState) {
+        if (!active_) {
+            return;
+        }
+        XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
+        flywithlua::WeAreNotInDrawingState = false;
+    }
+
+    ~OpenGLDrawStateScope() {
+        if (active_) {
+            flywithlua::WeAreNotInDrawingState = previousLuaDrawingState_;
+        }
+    }
+
+    OpenGLDrawStateScope(const OpenGLDrawStateScope&) = delete;
+    OpenGLDrawStateScope& operator=(const OpenGLDrawStateScope&) = delete;
+
+private:
+    bool active_;
+    bool previousLuaDrawingState_;
+};
+
+} // namespace
 
 ImGUIWindow::ImGUIWindow(int width, int height, int decoration, std::uint64_t ownerScriptId):
     FloatingWindow(width, height, decoration, true, ownerScriptId)
@@ -77,6 +107,8 @@ bool ImGUIWindow::syncFontTexture(bool usePanelGraphics) {
     auto& io = ImGui::GetIO();
 
     if (usePanelGraphics) {
+        const bool backendChanged = !panelRenderer;
+        bool fontTextureChanged = false;
         if (panelFontTexture == nullptr) {
             uint8_t* pixels = nullptr;
             int fontTexWidth = 0;
@@ -97,12 +129,14 @@ bool ImGUIWindow::syncFontTexture(bool usePanelGraphics) {
             if (panelFontTexture == nullptr) {
                 return false;
             }
+            fontTextureChanged = true;
         }
-        // Do not call OpenGL from a Panel Graphics callback. Keep the old
-        // OpenGL texture name around and reuse it if the window returns to
-        // OpenGL later; it is released by the window destructor.
+        if (backendChanged || fontTextureChanged) {
+            requestRedraw();
+            frameRendered = false;
+        }
         panelRenderer = true;
-        io.Fonts->TexID = panelFontTexture;
+        io.Fonts->SetTexID(panelFontTexture);
         return true;
     }
 
@@ -126,8 +160,12 @@ bool ImGUIWindow::syncFontTexture(bool usePanelGraphics) {
         flywithlua::panel::destroyTexture(panelFontTexture);
         panelFontTexture = nullptr;
     }
+    if (panelRenderer) {
+        requestRedraw();
+        frameRendered = false;
+    }
     panelRenderer = false;
-    io.Fonts->TexID = reinterpret_cast<void*>(static_cast<intptr_t>(fontTextureId));
+    io.Fonts->SetTexID(reinterpret_cast<void*>(static_cast<intptr_t>(fontTextureId)));
     return true;
 }
 
@@ -175,6 +213,7 @@ void ImGUIWindow::onDraw() {
     }
 
     const bool windowUsesPanel = isPanelGraphics();
+    OpenGLDrawStateScope graphicsScope(!windowUsesPanel);
     flywithlua::panel::PanelDrawScope panelScope(windowUsesPanel ? getXWindow() : nullptr);
     if (windowUsesPanel && !panelScope.active()) {
         return;
@@ -194,6 +233,12 @@ void ImGUIWindow::onDraw() {
             buildGUI();
         }
         showGUI(panelScope.active());
+        if (windowUsesPanel && !flywithlua::panel::enabled()) {
+            // Panel Graphics failures are handled by FloatingWindow's next
+            // flight-loop reconciliation. Do not run the legacy callback in
+            // the failed Panel callback and accidentally mix OpenGL into it.
+            return;
+        }
     } catch (const std::exception &e) {
         if (onError) {
             onError(e.what());

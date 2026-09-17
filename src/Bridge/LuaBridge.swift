@@ -376,6 +376,14 @@ private func flywithluaTextSize(from L: OpaquePointer?, index: Int32) -> CGFloat
     return value.isFinite && value > 0 ? value : nil
 }
 
+private func flywithluaTextCoordinate(from L: OpaquePointer?, index: Int32) -> CGFloat? {
+    guard lua_gettop(L) >= index, lua_isnumber(L, index) != 0 else {
+        return nil
+    }
+    let value = CGFloat(lua_tonumber(L, index))
+    return value.isFinite ? value : nil
+}
+
 private func flywithluaTextWeight(from L: OpaquePointer?, index: Int32) -> Int {
     guard lua_gettop(L) >= index, lua_isnumber(L, index) != 0 else {
         return 400
@@ -386,40 +394,39 @@ private func flywithluaTextWeight(from L: OpaquePointer?, index: Int32) -> Int {
 
 @_cdecl("l_draw_hidpi_string")
 public func l_draw_hidpi_string(L: OpaquePointer?) -> Int32 {
-    guard let text = flywithluaTextArgument(from: L, index: 3),
+    guard let x = flywithluaTextCoordinate(from: L, index: 1),
+          let y = flywithluaTextCoordinate(from: L, index: 2),
+          let text = flywithluaTextArgument(from: L, index: 3),
           let logicalSize = flywithluaTextSize(from: L, index: 4) else {
         lua_pushboolean(L, 0)
-        return 1
+        lua_pushboolean(L, 0)
+        return 2
     }
 
     let family = flywithluaTextArgument(from: L, index: 5) ?? "sf_pro_text"
     let weight = flywithluaTextWeight(from: L, index: 6)
-    let panelRendered = text.withCString { textPointer in
-        family.withCString { familyPointer in
-            flywithlua_panel_draw_hidpi_text(
-                Int32(lua_tointeger(L, 1)),
-                Int32(lua_tointeger(L, 2)),
-                textPointer,
-                Float(logicalSize),
-                familyPointer,
-                Int32(weight)
-            )
+    let panelDrawing = flywithlua_panel_is_drawing() != 0
+    if panelDrawing {
+        let panelRendered = text.withCString { textPointer in
+            family.withCString { familyPointer in
+                flywithlua_panel_draw_hidpi_text(
+                    Int32(x),
+                    Int32(y),
+                    textPointer,
+                    Float(logicalSize),
+                    familyPointer,
+                    Int32(weight)
+                )
+            }
         }
-    }
-    if panelRendered != 0 {
-        lua_pushboolean(L, 1)
-        lua_pushboolean(L, 0)
-        return 2
-    }
-    if flywithlua_panel_is_drawing() != 0 {
-        lua_pushboolean(L, 0)
+        lua_pushboolean(L, panelRendered != 0 ? 1 : 0)
         lua_pushboolean(L, 0)
         return 2
     }
     let result = HUDTextRenderer.shared.drawResult(
         text: text,
-        x: CGFloat(lua_tonumber(L, 1)),
-        y: CGFloat(lua_tonumber(L, 2)),
+        x: x,
+        y: y,
         logicalSize: logicalSize,
         family: family,
         weight: weight

@@ -494,6 +494,7 @@ function lrl_checkForVR()
 end
 
 do_every_draw('lrl_loopCallback()')
+do_every_panel_draw('lrl_loopCallback()')
 
 do_often("lrl_checkForVR()")
 
