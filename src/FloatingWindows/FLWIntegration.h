@@ -19,6 +19,7 @@ void initFloatingWindowSupport();
 void deinitFloatingWindowSupport();
 void onFlightLoop();
 bool FindAndQuarantine (lua_State *L);
+void* panelTextureForLegacyID(void* legacyTextureID);
 
 }
 

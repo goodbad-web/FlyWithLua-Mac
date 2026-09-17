@@ -72,7 +72,7 @@ endif ()
 
 
 # Enable all X-Plane SDK APIs up to the newest version.
-add_definitions(-DXPLM200=1 -DXPLM210=1 -DXPLM300=1 -DXPLM301=1 -DXPLM302=1 -DXPLM303=1 -DXPLM400=1)
+add_definitions(-DXPLM200=1 -DXPLM210=1 -DXPLM300=1 -DXPLM301=1 -DXPLM302=1 -DXPLM303=1 -DXPLM400=1 -DXPLM440=1)
 # Define platform macros.
 add_definitions(-DAPL=$<BOOL:${APPLE}> -DIBM=$<BOOL:${WIN32}> -DLIN=$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>)
 
@@ -104,6 +104,7 @@ add_compile_options(-O3 -fPIC)
 # X-Plane plugin
 # FIXME: Split this into individual targets.
 list(APPEND FLYWITHLUA_SRCS FlyWithLua.cpp ../cmake/FlyWithLuaSwiftBridgeStubs.cpp
+    Graphics/PanelGraphicsBackend.cpp
     Native3jFPS12/ThreeJFPSControllerCore.cpp Native3jFPS12/ThreeJFPSNative.cpp
     third_party/iniReader/inireader.cpp third_party/iniReader/readinifile.cpp)
 list(APPEND FLYWITHLUA_SRCS FloatingWindows/FLWIntegration.cpp FloatingWindows/ImGUIIntegration.cpp FloatingWindows/FloatingWindow.cpp)

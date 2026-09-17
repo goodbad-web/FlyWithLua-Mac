@@ -1,5 +1,6 @@
 // ****** readinifile.cpp **********
 // ****  William R. Good  ********
+#include "FlyWithLua.h"
 #include "XPLMCamera.h"
 #include "XPLMDataAccess.h"
 #include "XPLMDisplay.h"
@@ -11,7 +12,6 @@
 #include "XPLMUtilities.h"
 
 #include "inireader.h"
-#include "FlyWithLua.h"
 #include <vector>
 #include <fstream>
 #include <iostream>

@@ -1,6 +1,7 @@
 #include "ThreeJFPSNative.h"
 
 #include "ThreeJFPSControllerCore.h"
+#include "../Graphics/PanelGraphicsBackend.h"
 #include "XPLMDataAccess.h"
 #include "XPLMDisplay.h"
 #include "XPLMGraphics.h"
@@ -70,6 +71,9 @@ struct NumericDataRef {
 class HUDPrimitiveStateGuard {
 public:
     HUDPrimitiveStateGuard() {
+        if (flywithlua::panel::panelDrawing()) {
+            return;
+        }
         // X-Plane and plug-ins share the fixed-function OpenGL state.  The
         // SDK helper does not manage face culling or scissoring, so an
         // inherited state can make otherwise valid screen-space quads
@@ -84,6 +88,9 @@ public:
     }
 
     ~HUDPrimitiveStateGuard() {
+        if (flywithlua::panel::panelDrawing()) {
+            return;
+        }
         glPopAttrib();
 
         // Keep X-Plane's cached state consistent with the state that the HUD
@@ -448,8 +455,16 @@ public:
         const int y = resolveHUDY(screenHeight, boxHeight);
         const float alpha = static_cast<float>(std::max(0.15, std::min(1.0, hudAlpha_)));
 
-        XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
-        XPLMDrawTranslucentDarkBox(x - 5, y + boxHeight + 5, x + boxWidth + 5, y - 5);
+        if (flywithlua::panel::panelDrawing()) {
+            flywithlua::panel::setColor(0.08f, 0.08f, 0.08f, alpha * 0.86f);
+            flywithlua::panel::drawFilledRect(static_cast<float>(x - 5),
+                                              static_cast<float>(y - 5),
+                                              static_cast<float>(x + boxWidth + 5),
+                                              static_cast<float>(y + boxHeight + 5));
+        } else {
+            XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
+            XPLMDrawTranslucentDarkBox(x - 5, y + boxHeight + 5, x + boxWidth + 5, y - 5);
+        }
 
         float indicatorColor[4] = {0.25f, 0.85f, 0.35f, alpha};
         if (controller_.state().reason.find("overload") != std::string::npos ||
@@ -469,13 +484,21 @@ public:
 
         {
             HUDPrimitiveStateGuard primitiveState;
-            glColor4f(indicatorColor[0], indicatorColor[1], indicatorColor[2], alpha);
-            glBegin(GL_QUADS);
-            glVertex2f(static_cast<float>(x), static_cast<float>(y));
-            glVertex2f(static_cast<float>(x + 4), static_cast<float>(y));
-            glVertex2f(static_cast<float>(x + 4), static_cast<float>(y + boxHeight));
-            glVertex2f(static_cast<float>(x), static_cast<float>(y + boxHeight));
-            glEnd();
+            if (flywithlua::panel::panelDrawing()) {
+                flywithlua::panel::setColor(indicatorColor[0], indicatorColor[1],
+                                             indicatorColor[2], alpha);
+                flywithlua::panel::drawFilledRect(static_cast<float>(x), static_cast<float>(y),
+                                                  static_cast<float>(x + 4),
+                                                  static_cast<float>(y + boxHeight));
+            } else {
+                glColor4f(indicatorColor[0], indicatorColor[1], indicatorColor[2], alpha);
+                glBegin(GL_QUADS);
+                glVertex2f(static_cast<float>(x), static_cast<float>(y));
+                glVertex2f(static_cast<float>(x + 4), static_cast<float>(y));
+                glVertex2f(static_cast<float>(x + 4), static_cast<float>(y + boxHeight));
+                glVertex2f(static_cast<float>(x), static_cast<float>(y + boxHeight));
+                glEnd();
+            }
         }
 
         const float textColor[3] = {1.0f, 1.0f, 1.0f};
@@ -1345,6 +1368,13 @@ private:
     double measureHUDText(const std::string& text,
                           const char* family,
                           int weight) const {
+        if (flywithlua::panel::panelDrawing()) {
+            const double panelWidth = flywithlua::panel::measureText(
+                text.c_str(), static_cast<float>(std::max(12, hudLineHeight_)), family, weight);
+            if (std::isfinite(panelWidth) && panelWidth >= 0.0) {
+                return panelWidth;
+            }
+        }
         const double measured = flywithlua_measure_hidpi_text(
             text.c_str(),
             static_cast<float>(std::max(12, hudLineHeight_)),
@@ -1473,13 +1503,18 @@ private:
                               float blue,
                               float alpha) {
         if (width <= 0.0f || height <= 0.0f) return;
-        glColor4f(red, green, blue, alpha);
-        glBegin(GL_QUADS);
-        glVertex2f(x, y);
-        glVertex2f(x + width, y);
-        glVertex2f(x + width, y + height);
-        glVertex2f(x, y + height);
-        glEnd();
+        if (flywithlua::panel::panelDrawing()) {
+            flywithlua::panel::setColor(red, green, blue, alpha);
+            flywithlua::panel::drawFilledRect(x, y, x + width, y + height);
+        } else {
+            glColor4f(red, green, blue, alpha);
+            glBegin(GL_QUADS);
+            glVertex2f(x, y);
+            glVertex2f(x + width, y);
+            glVertex2f(x + width, y + height);
+            glVertex2f(x, y + height);
+            glEnd();
+        }
     }
 
     void drawUsageGraph(int x,
@@ -1653,6 +1688,14 @@ private:
         float rgb[3] = {color[0], color[1], color[2]};
         const float drawAlpha = std::max(0.0f, std::min(1.0f, alpha));
         const float logicalSize = static_cast<float>(std::max(12, hudLineHeight_));
+        if (flywithlua::panel::drawText(static_cast<float>(x), static_cast<float>(y),
+                                        text.c_str(), logicalSize, family, weight,
+                                        rgb[0], rgb[1], rgb[2], drawAlpha)) {
+            return;
+        }
+        if (flywithlua::panel::panelDrawing()) {
+            return;
+        }
         glColor4f(rgb[0], rgb[1], rgb[2], drawAlpha);
         if (flywithlua_draw_hidpi_text(x, y, text.c_str(), logicalSize, family, weight) != 0) {
             return;

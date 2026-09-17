@@ -62,6 +62,10 @@ public func flywithlua_draw_hidpi_text(_ x: Int32,
         return 0
     }
 
+    if flywithlua_panel_draw_hidpi_text(x, y, text, logicalSize, family, weight) != 0 {
+        return 1
+    }
+
     let familyName = family.map { String(cString: $0) } ?? "sf_pro_text"
     let rendered = HUDTextRenderer.shared.draw(
         text: String(cString: text),
@@ -83,6 +87,11 @@ public func flywithlua_measure_hidpi_text(_ text: UnsafePointer<CChar>?,
           logicalSize.isFinite,
           logicalSize > 0 else {
         return -1
+    }
+
+    let panelWidth = flywithlua_panel_measure_hidpi_text(text, logicalSize, family, weight)
+    if panelWidth.isFinite, panelWidth >= 0 {
+        return panelWidth
     }
 
     let familyName = family.map { String(cString: $0) } ?? "sf_pro_text"
@@ -262,20 +271,19 @@ public func l_draw_string(L: OpaquePointer?) -> Int32 {
         return 0
     }
 
-    let fontName: String?
+    let fontName: String
     if lua_gettop(L) >= 4, let cFont = lua_tolstring(L, 4, nil) {
         fontName = String(cString: cFont)
     } else {
         fontName = "Helvetica_12"
     }
 
+    let explicitColor = lua_gettop(L) >= 8 &&
+        lua_isnumber(L, 5) != 0 && lua_isnumber(L, 6) != 0 &&
+        lua_isnumber(L, 7) != 0 && lua_isnumber(L, 8) != 0
     let fontID = flywithluaFontID(for: fontName)
     var color: [GLfloat]
-    if lua_gettop(L) >= 8,
-       lua_isnumber(L, 5) != 0,
-       lua_isnumber(L, 6) != 0,
-       lua_isnumber(L, 7) != 0,
-       lua_isnumber(L, 8) != 0 {
+    if explicitColor {
         color = [
             GLfloat(lua_tonumber(L, 5)),
             GLfloat(lua_tonumber(L, 6)),
@@ -283,12 +291,30 @@ public func l_draw_string(L: OpaquePointer?) -> Int32 {
             GLfloat(lua_tonumber(L, 8))
         ]
     } else {
-        color = flywithluaCurrentColor()
+        color = flywithlua_panel_is_drawing() != 0
+            ? [1, 1, 1, 1]
+            : flywithluaCurrentColor()
     }
 
     let x = Int32(lua_tointeger(L, 1))
     let y = Int32(lua_tointeger(L, 2))
     let drawableText = UnsafeMutablePointer(mutating: cText)
+
+    if flywithlua_panel_is_drawing() != 0 {
+        let rendered = fontName.withCString { fontPointer in
+            if explicitColor {
+                return color.withUnsafeBufferPointer { buffer in
+                    flywithlua_panel_draw_legacy_text(x, y, cText, fontPointer,
+                                                      buffer.baseAddress)
+                }
+            }
+            return flywithlua_panel_draw_legacy_text(x, y, cText, fontPointer, nil)
+        }
+        if rendered != 0 {
+            return 0
+        }
+        return 0
+    }
 
     color.withUnsafeMutableBufferPointer { buffer in
         guard let baseAddress = buffer.baseAddress else { return }
@@ -305,11 +331,19 @@ public func l_measure_string(L: OpaquePointer?) -> Int32 {
         return 1
     }
 
-    let fontName: String?
+    let fontName: String
     if lua_gettop(L) >= 2, let cFont = lua_tolstring(L, 2, nil) {
         fontName = String(cString: cFont)
     } else {
         fontName = "Helvetica_12"
+    }
+
+    let panelWidth = fontName.withCString { fontPointer in
+        flywithlua_panel_measure_legacy_text(cText, fontPointer)
+    }
+    if panelWidth.isFinite, panelWidth >= 0 {
+        lua_pushnumber(L, panelWidth)
+        return 1
     }
 
     let fontID = flywithluaFontID(for: fontName)
@@ -357,6 +391,23 @@ public func l_draw_hidpi_string(L: OpaquePointer?) -> Int32 {
 
     let family = flywithluaTextArgument(from: L, index: 5) ?? "sf_pro_text"
     let weight = flywithluaTextWeight(from: L, index: 6)
+    let panelRendered = text.withCString { textPointer in
+        family.withCString { familyPointer in
+            flywithlua_panel_draw_hidpi_text(
+                Int32(lua_tointeger(L, 1)),
+                Int32(lua_tointeger(L, 2)),
+                textPointer,
+                Float(logicalSize),
+                familyPointer,
+                Int32(weight)
+            )
+        }
+    }
+    if panelRendered != 0 {
+        lua_pushboolean(L, 1)
+        lua_pushboolean(L, 0)
+        return 2
+    }
     let result = HUDTextRenderer.shared.drawResult(
         text: text,
         x: CGFloat(lua_tonumber(L, 1)),
@@ -380,6 +431,15 @@ public func l_measure_hidpi_string(L: OpaquePointer?) -> Int32 {
 
     let family = flywithluaTextArgument(from: L, index: 3) ?? "sf_pro_text"
     let weight = flywithluaTextWeight(from: L, index: 4)
+    let panelWidth = text.withCString { textPointer in
+        family.withCString { familyPointer in
+            flywithlua_panel_measure_hidpi_text(textPointer, Float(logicalSize), familyPointer, Int32(weight))
+        }
+    }
+    if panelWidth.isFinite, panelWidth >= 0 {
+        lua_pushnumber(L, panelWidth)
+        return 1
+    }
     guard let width = HUDTextRenderer.shared.measure(
         text: text,
         logicalSize: logicalSize,
@@ -396,12 +456,20 @@ public func l_measure_hidpi_string(L: OpaquePointer?) -> Int32 {
 
 @_cdecl("l_begin_hidpi_frame")
 public func l_begin_hidpi_frame(L: OpaquePointer?) -> Int32 {
+    if flywithlua_panel_is_drawing() != 0 {
+        lua_pushboolean(L, 1)
+        return 1
+    }
     lua_pushboolean(L, HUDTextRenderer.shared.beginFrame() ? 1 : 0)
     return 1
 }
 
 @_cdecl("l_end_hidpi_frame")
 public func l_end_hidpi_frame(L: OpaquePointer?) -> Int32 {
+    if flywithlua_panel_is_drawing() != 0 {
+        lua_pushboolean(L, 1)
+        return 1
+    }
     lua_pushboolean(L, HUDTextRenderer.shared.endFrame() ? 1 : 0)
     return 1
 }

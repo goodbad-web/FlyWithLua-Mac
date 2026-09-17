@@ -1,0 +1,561 @@
+#include "PanelGraphicsBackend.h"
+
+#include "XPLMUtilities.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cctype>
+#include <cstddef>
+#include <cstring>
+#include <initializer_list>
+#include <sstream>
+#include <unistd.h>
+
+namespace flywithlua::panel {
+namespace {
+
+struct PanelAPI {
+    decltype(&XPLMMakeColor) makeColor = nullptr;
+    decltype(&XPLMPolygon) polygon = nullptr;
+    decltype(&XPLMLines) lines = nullptr;
+    decltype(&XPLMLinesWithWidth) linesWithWidth = nullptr;
+    decltype(&XPLMLineStrip) lineStrip = nullptr;
+    decltype(&XPLMLineStripWithWidth) lineStripWithWidth = nullptr;
+    decltype(&XPLMLineLoop) lineLoop = nullptr;
+    decltype(&XPLMLineLoopWithWidth) lineLoopWithWidth = nullptr;
+    decltype(&XPLMQuadstrip) quadStrip = nullptr;
+    decltype(&XPLMCreateFont) createFont = nullptr;
+    decltype(&XPLMDestroyFont) destroyFont = nullptr;
+    decltype(&XPLMFontAddFace) addFace = nullptr;
+    decltype(&XPLMFontMeasureString) measureString = nullptr;
+    decltype(&XPLMFontDrawString) drawString = nullptr;
+    decltype(&XPLMCreateTexture) createTexture = nullptr;
+    decltype(&XPLMDestroyTexture) destroyTexture = nullptr;
+    decltype(&XPLMDrawCalls) drawCalls = nullptr;
+};
+
+struct State {
+    BackendPreference preference = BackendPreference::Auto;
+    bool initialized = false;
+    bool panelEnabled = false;
+    bool drawing = false;
+    bool failureLogged = false;
+    PanelAPI api;
+    std::array<XPLMFontHandle, 4> fonts = {nullptr, nullptr, nullptr, nullptr};
+    std::array<bool, 4> fontAttempted = {false, false, false, false};
+    float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    float lineWidth = 1.0f;
+    LegacyPrimitiveMode primitiveMode = LegacyPrimitiveMode::Lines;
+    std::vector<XPLMVertex_t> vertices;
+};
+
+State gState;
+
+template <typename T>
+T findSymbol(const char* name) {
+    return reinterpret_cast<T>(XPLMFindSymbol(name));
+}
+
+void logMessage(const std::string& message) {
+    XPLMDebugString(("FlyWithLua-Mac Panel Graphics: " + message + "\n").c_str());
+}
+
+const char* preferenceName(BackendPreference preference) {
+    switch (preference) {
+        case BackendPreference::Panel: return "panel";
+        case BackendPreference::OpenGL: return "opengl";
+        case BackendPreference::Auto: return "auto";
+    }
+    return "auto";
+}
+
+uint32_t packedColor() {
+    if (gState.api.makeColor != nullptr) {
+        return gState.api.makeColor(gState.color[0], gState.color[1],
+                                    gState.color[2], gState.color[3]);
+    }
+
+    const auto component = [](float value) -> uint32_t {
+        return static_cast<uint32_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
+    };
+    return component(gState.color[3]) << 24 |
+           component(gState.color[2]) << 16 |
+           component(gState.color[1]) << 8 |
+           component(gState.color[0]);
+}
+
+void drawPolygon(const XPLMVertex_t* vertices, int count) {
+    if (gState.api.polygon != nullptr && count >= 3) {
+        gState.api.polygon(packedColor(), vertices, count);
+    }
+}
+
+void drawTriangle(const XPLMVertex_t& a,
+                  const XPLMVertex_t& b,
+                  const XPLMVertex_t& c) {
+    const XPLMVertex_t triangle[] = {a, b, c};
+    drawPolygon(triangle, 3);
+}
+
+int fontIndex(const char* family, int weight) {
+    const std::string name = family != nullptr ? family : "sf_pro_text";
+    const bool mono = name == "sf_mono" || name == "sfmono" || name == "sf mono";
+    const bool bold = weight >= 600;
+    return (mono ? 2 : 0) + (bold ? 1 : 0);
+}
+
+XPLMFontHandle ensureFont(const char* family, int weight) {
+    const int index = fontIndex(family, weight);
+    if (gState.fontAttempted[static_cast<size_t>(index)]) {
+        return gState.fonts[static_cast<size_t>(index)];
+    }
+    gState.fontAttempted[static_cast<size_t>(index)] = true;
+
+    if (gState.api.createFont == nullptr || gState.api.addFace == nullptr) {
+        return nullptr;
+    }
+
+    XPLMFontHandle font = gState.api.createFont(xplm_CharSetUnicode);
+    if (font == nullptr) {
+        return nullptr;
+    }
+
+    const bool mono = index >= 2;
+    const bool bold = (index % 2) != 0;
+    const std::initializer_list<const char*> candidates = mono
+        ? (bold
+            ? std::initializer_list<const char*>{
+                  "/System/Library/Fonts/SFNSMono.ttf",
+                  "/System/Library/Fonts/Menlo.ttc"}
+            : std::initializer_list<const char*>{
+                  "/System/Library/Fonts/SFNSMono.ttf",
+                  "/System/Library/Fonts/Menlo.ttc"})
+        : (bold
+            ? std::initializer_list<const char*>{
+                  "/Library/Fonts/SF-Pro-Text-Bold.otf",
+                  "/System/Library/Fonts/SFNS.ttf",
+                  "/System/Library/Fonts/Helvetica.ttc"}
+            : std::initializer_list<const char*>{
+                  "/Library/Fonts/SF-Pro-Text-Regular.otf",
+                  "/System/Library/Fonts/SFNS.ttf",
+                  "/System/Library/Fonts/Helvetica.ttc"});
+
+    bool added = false;
+    for (const char* path : candidates) {
+        if (access(path, R_OK) == 0 && gState.api.addFace(font, path) != 0) {
+            added = true;
+            break;
+        }
+    }
+    if (!added) {
+        gState.api.destroyFont(font);
+        return nullptr;
+    }
+
+    gState.fonts[static_cast<size_t>(index)] = font;
+    return font;
+}
+
+void releaseFonts() {
+    if (gState.api.destroyFont == nullptr) {
+        return;
+    }
+    for (XPLMFontHandle& font : gState.fonts) {
+        if (font != nullptr) {
+            gState.api.destroyFont(font);
+            font = nullptr;
+        }
+    }
+    gState.fontAttempted.fill(false);
+}
+
+void drawCapturedPrimitive() {
+    const auto& vertices = gState.vertices;
+    if (vertices.empty()) {
+        return;
+    }
+
+    switch (gState.primitiveMode) {
+        case LegacyPrimitiveMode::Points:
+            for (const XPLMVertex_t& point : vertices) {
+                drawFilledRect(point.x, point.y, point.x + gState.lineWidth,
+                               point.y + gState.lineWidth);
+            }
+            return;
+        case LegacyPrimitiveMode::Lines:
+            if (gState.api.linesWithWidth != nullptr && vertices.size() >= 2) {
+                const int count = static_cast<int>(vertices.size() - vertices.size() % 2);
+                gState.api.linesWithWidth(packedColor(), gState.lineWidth, vertices.data(), count);
+            }
+            return;
+        case LegacyPrimitiveMode::LineStrip:
+            if (vertices.size() >= 2) {
+                if (gState.lineWidth != 1.0f && gState.api.lineStripWithWidth != nullptr) {
+                    gState.api.lineStripWithWidth(packedColor(), gState.lineWidth,
+                                                  vertices.data(), static_cast<int>(vertices.size()));
+                } else if (gState.api.lineStrip != nullptr) {
+                    gState.api.lineStrip(packedColor(), vertices.data(), static_cast<int>(vertices.size()));
+                }
+            }
+            return;
+        case LegacyPrimitiveMode::LineLoop:
+            if (vertices.size() >= 2) {
+                if (gState.lineWidth != 1.0f && gState.api.lineLoopWithWidth != nullptr) {
+                    gState.api.lineLoopWithWidth(packedColor(), gState.lineWidth,
+                                                 vertices.data(), static_cast<int>(vertices.size()));
+                } else if (gState.api.lineLoop != nullptr) {
+                    gState.api.lineLoop(packedColor(), vertices.data(), static_cast<int>(vertices.size()));
+                }
+            }
+            return;
+        case LegacyPrimitiveMode::Polygon:
+            drawPolygon(vertices.data(), static_cast<int>(vertices.size()));
+            return;
+        case LegacyPrimitiveMode::Triangles:
+            for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
+                drawTriangle(vertices[i], vertices[i + 1], vertices[i + 2]);
+            }
+            return;
+        case LegacyPrimitiveMode::TriangleStrip:
+            for (size_t i = 0; i + 2 < vertices.size(); ++i) {
+                drawTriangle(vertices[i], vertices[i + 1], vertices[i + 2]);
+            }
+            return;
+        case LegacyPrimitiveMode::TriangleFan:
+            for (size_t i = 1; i + 1 < vertices.size(); ++i) {
+                drawTriangle(vertices[0], vertices[i], vertices[i + 1]);
+            }
+            return;
+        case LegacyPrimitiveMode::Quads:
+            for (size_t i = 0; i + 3 < vertices.size(); i += 4) {
+                drawPolygon(&vertices[i], 4);
+            }
+            return;
+        case LegacyPrimitiveMode::QuadStrip:
+            if (gState.api.quadStrip != nullptr && vertices.size() >= 4) {
+                const size_t evenCount = vertices.size() - vertices.size() % 2;
+                gState.api.quadStrip(packedColor(), vertices.data(), static_cast<int>(evenCount));
+            }
+            return;
+    }
+}
+
+} // namespace
+
+void configureBackend(const std::string& value) {
+    std::string lower = value;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    if (lower == "panel") {
+        gState.preference = BackendPreference::Panel;
+    } else if (lower == "opengl" || lower == "open_gl" || lower == "gl") {
+        gState.preference = BackendPreference::OpenGL;
+    } else {
+        gState.preference = BackendPreference::Auto;
+    }
+}
+
+void initialize() {
+    if (gState.initialized) {
+        return;
+    }
+    gState.initialized = true;
+
+    if (gState.preference == BackendPreference::OpenGL) {
+        logMessage("requested=opengl effective=opengl");
+        return;
+    }
+
+    gState.api.makeColor = findSymbol<decltype(gState.api.makeColor)>("XPLMMakeColor");
+    gState.api.polygon = findSymbol<decltype(gState.api.polygon)>("XPLMPolygon");
+    gState.api.lines = findSymbol<decltype(gState.api.lines)>("XPLMLines");
+    gState.api.linesWithWidth = findSymbol<decltype(gState.api.linesWithWidth)>("XPLMLinesWithWidth");
+    gState.api.lineStrip = findSymbol<decltype(gState.api.lineStrip)>("XPLMLineStrip");
+    gState.api.lineStripWithWidth = findSymbol<decltype(gState.api.lineStripWithWidth)>("XPLMLineStripWithWidth");
+    gState.api.lineLoop = findSymbol<decltype(gState.api.lineLoop)>("XPLMLineLoop");
+    gState.api.lineLoopWithWidth = findSymbol<decltype(gState.api.lineLoopWithWidth)>("XPLMLineLoopWithWidth");
+    gState.api.quadStrip = findSymbol<decltype(gState.api.quadStrip)>("XPLMQuadstrip");
+    gState.api.createFont = findSymbol<decltype(gState.api.createFont)>("XPLMCreateFont");
+    gState.api.destroyFont = findSymbol<decltype(gState.api.destroyFont)>("XPLMDestroyFont");
+    gState.api.addFace = findSymbol<decltype(gState.api.addFace)>("XPLMFontAddFace");
+    gState.api.measureString = findSymbol<decltype(gState.api.measureString)>("XPLMFontMeasureString");
+    gState.api.drawString = findSymbol<decltype(gState.api.drawString)>("XPLMFontDrawString");
+    gState.api.createTexture = findSymbol<decltype(gState.api.createTexture)>("XPLMCreateTexture");
+    gState.api.destroyTexture = findSymbol<decltype(gState.api.destroyTexture)>("XPLMDestroyTexture");
+    gState.api.drawCalls = findSymbol<decltype(gState.api.drawCalls)>("XPLMDrawCalls");
+
+    const bool primitivesAvailable = gState.api.makeColor != nullptr &&
+        gState.api.polygon != nullptr && gState.api.linesWithWidth != nullptr &&
+        gState.api.lineStrip != nullptr && gState.api.lineLoop != nullptr;
+    const bool textAvailable = gState.api.createFont != nullptr &&
+        gState.api.destroyFont != nullptr && gState.api.addFace != nullptr &&
+        gState.api.measureString != nullptr && gState.api.drawString != nullptr;
+    const bool imguiAvailable = gState.api.createTexture != nullptr &&
+        gState.api.destroyTexture != nullptr && gState.api.drawCalls != nullptr;
+    gState.panelEnabled = primitivesAvailable && textAvailable && imguiAvailable;
+    logMessage(std::string("requested=") + preferenceName(gState.preference) +
+               " effective=" + (gState.panelEnabled ? "panel" : "opengl") +
+               (gState.panelEnabled ? "" : " reason=required symbol unavailable"));
+}
+
+void shutdown() {
+    releaseFonts();
+    gState = State{};
+}
+
+BackendPreference requestedBackend() {
+    return gState.preference;
+}
+
+bool panelAvailable() {
+    return gState.panelEnabled;
+}
+
+bool enabled() {
+    return gState.panelEnabled;
+}
+
+bool panelDrawing() {
+    return gState.drawing;
+}
+
+void disableForSession(const char* reason) {
+    if (gState.panelEnabled && !gState.failureLogged) {
+        gState.failureLogged = true;
+        logMessage(std::string("disabled for session; falling back to OpenGL: ") +
+                   (reason != nullptr ? reason : "unknown failure"));
+    }
+    gState.panelEnabled = false;
+    gState.drawing = false;
+}
+
+void configurePanelWindow(XPLMCreateWindow_t& params) {
+    params.structSize = sizeof(XPLMCreateWindow_t);
+    params.contentType = xplm_WindowContentTypePanelGraphics;
+}
+
+void configureOpenGLWindow(XPLMCreateWindow_t& params) {
+    params.structSize = static_cast<int>(offsetof(XPLMCreateWindow_t, contentType));
+    params.contentType = xplm_WindowContentTypeOpenGL;
+}
+
+bool beginPanelWindow(XPLMWindowID /*window*/) {
+    if (!gState.panelEnabled) {
+        return false;
+    }
+    gState.drawing = true;
+    gState.color[0] = 1.0f;
+    gState.color[1] = 1.0f;
+    gState.color[2] = 1.0f;
+    gState.color[3] = 1.0f;
+    gState.lineWidth = 1.0f;
+    gState.vertices.clear();
+    return true;
+}
+
+void endPanelWindow() {
+    if (!gState.drawing) {
+        return;
+    }
+    if (!gState.vertices.empty()) {
+        gState.vertices.clear();
+    }
+    gState.drawing = false;
+}
+
+void setColor(float red, float green, float blue, float alpha) {
+    gState.color[0] = red;
+    gState.color[1] = green;
+    gState.color[2] = blue;
+    gState.color[3] = alpha;
+}
+
+void setLineWidth(float width) {
+    gState.lineWidth = std::max(1.0f, width);
+}
+
+void beginPrimitive(LegacyPrimitiveMode mode) {
+    if (!gState.drawing) {
+        return;
+    }
+    gState.primitiveMode = mode;
+    gState.vertices.clear();
+}
+
+void vertex(float x, float y) {
+    if (gState.drawing) {
+        gState.vertices.push_back({x, y});
+    }
+}
+
+void endPrimitive() {
+    if (!gState.drawing) {
+        return;
+    }
+    drawCapturedPrimitive();
+    gState.vertices.clear();
+}
+
+void drawFilledRect(float x1, float y1, float x2, float y2) {
+    if (!gState.drawing) {
+        return;
+    }
+    const float left = std::min(x1, x2);
+    const float right = std::max(x1, x2);
+    const float bottom = std::min(y1, y2);
+    const float top = std::max(y1, y2);
+    const XPLMVertex_t vertices[] = {
+        {left, bottom}, {right, bottom}, {right, top}, {left, top}
+    };
+    drawPolygon(vertices, 4);
+}
+
+bool drawText(float x, float y, const char* text, float fontSize, const char* family,
+              int weight, float red, float green, float blue, float alpha) {
+    if (!gState.drawing || text == nullptr || fontSize <= 0.0f ||
+        gState.api.drawString == nullptr) {
+        return false;
+    }
+    XPLMFontHandle font = ensureFont(family, weight);
+    if (font == nullptr) {
+        return false;
+    }
+    setColor(red, green, blue, alpha);
+    gState.api.drawString(font, packedColor(), fontSize, x, y, text, xplm_JustLeft);
+    return true;
+}
+
+bool drawTextCurrentColor(float x, float y, const char* text, float fontSize,
+                          const char* family, int weight) {
+    if (!gState.drawing || text == nullptr || fontSize <= 0.0f ||
+        gState.api.drawString == nullptr) {
+        return false;
+    }
+    XPLMFontHandle font = ensureFont(family, weight);
+    if (font == nullptr) {
+        return false;
+    }
+    gState.api.drawString(font, packedColor(), fontSize, x, y, text, xplm_JustLeft);
+    return true;
+}
+
+double measureText(const char* text, float fontSize, const char* family, int weight) {
+    if (!gState.drawing || text == nullptr || fontSize <= 0.0f ||
+        gState.api.measureString == nullptr) {
+        return -1.0;
+    }
+    XPLMFontHandle font = ensureFont(family, weight);
+    if (font == nullptr) {
+        return -1.0;
+    }
+    return static_cast<double>(gState.api.measureString(font, fontSize, text));
+}
+
+int drawLegacyText(int x, int y, const char* text, const char* fontName,
+                   float red, float green, float blue, float alpha) {
+    const char* family = (fontName != nullptr &&
+                          std::strstr(fontName, "mono") != nullptr) ? "sf_mono" : "sf_pro_text";
+    float size = 12.0f;
+    if (fontName != nullptr) {
+        if (std::strstr(fontName, "10") != nullptr) size = 10.0f;
+        if (std::strstr(fontName, "18") != nullptr) size = 18.0f;
+        if (std::strstr(fontName, "24") != nullptr) size = 24.0f;
+    }
+    return drawText(static_cast<float>(x), static_cast<float>(y), text, size,
+                    family, 400, red, green, blue, alpha) ? 1 : 0;
+}
+
+double measureLegacyText(const char* text, const char* fontName) {
+    const char* family = (fontName != nullptr &&
+                          std::strstr(fontName, "mono") != nullptr) ? "sf_mono" : "sf_pro_text";
+    float size = 12.0f;
+    if (fontName != nullptr) {
+        if (std::strstr(fontName, "10") != nullptr) size = 10.0f;
+        if (std::strstr(fontName, "18") != nullptr) size = 18.0f;
+        if (std::strstr(fontName, "24") != nullptr) size = 24.0f;
+    }
+    return measureText(text, size, family, 400);
+}
+
+int drawLegacyTextCurrentColor(int x, int y, const char* text, const char* fontName) {
+    const char* family = (fontName != nullptr &&
+                          std::strstr(fontName, "mono") != nullptr) ? "sf_mono" : "sf_pro_text";
+    float size = 12.0f;
+    if (fontName != nullptr) {
+        if (std::strstr(fontName, "10") != nullptr) size = 10.0f;
+        if (std::strstr(fontName, "18") != nullptr) size = 18.0f;
+        if (std::strstr(fontName, "24") != nullptr) size = 24.0f;
+    }
+    return drawTextCurrentColor(static_cast<float>(x), static_cast<float>(y), text,
+                                size, family, 400) ? 1 : 0;
+}
+
+void* createTexture(const unsigned char* rgbaImage, int width, int height) {
+    if (!gState.panelEnabled || gState.api.createTexture == nullptr ||
+        rgbaImage == nullptr || width <= 0 || height <= 0) {
+        return nullptr;
+    }
+    return gState.api.createTexture(rgbaImage, width, height);
+}
+
+void destroyTexture(void* texture) {
+    if (texture != nullptr && gState.api.destroyTexture != nullptr) {
+        gState.api.destroyTexture(texture);
+    }
+}
+
+bool drawCalls(const XPLMMesh_t& mesh, const std::vector<DrawCall>& calls) {
+    if (!gState.drawing || gState.api.drawCalls == nullptr || calls.empty()) {
+        return false;
+    }
+    std::vector<XPLMDrawCall_t> sdkCalls;
+    sdkCalls.reserve(calls.size());
+    for (const DrawCall& call : calls) {
+        XPLMDrawCall_t sdkCall{};
+        sdkCall.tex_ref = call.texture;
+        std::copy(std::begin(call.scissors), std::end(call.scissors), sdkCall.scissors);
+        sdkCall.idx_offset = call.indexOffset;
+        sdkCall.element_count = call.elementCount;
+        sdkCall.vtx_offset = call.vertexOffset;
+        sdkCalls.push_back(sdkCall);
+    }
+    gState.api.drawCalls(&mesh, static_cast<int>(sdkCalls.size()), sdkCalls.data());
+    return true;
+}
+
+} // namespace flywithlua::panel
+
+extern "C" int flywithlua_panel_draw_hidpi_text(int x, int y, const char* text,
+                                                  float logicalSize, const char* family,
+                                                  int weight) {
+    return flywithlua::panel::drawTextCurrentColor(static_cast<float>(x), static_cast<float>(y),
+                                                   text, logicalSize, family, weight)
+        ? 1 : 0;
+}
+
+extern "C" int flywithlua_panel_is_drawing(void) {
+    return flywithlua::panel::panelDrawing() ? 1 : 0;
+}
+
+extern "C" double flywithlua_panel_measure_hidpi_text(const char* text, float logicalSize,
+                                                       const char* family, int weight) {
+    return flywithlua::panel::measureText(text, logicalSize, family, weight);
+}
+
+extern "C" int flywithlua_panel_draw_legacy_text(int x, int y, const char* text,
+                                                   const char* fontName, const float* color) {
+    if (color == nullptr) {
+        return flywithlua::panel::drawLegacyTextCurrentColor(x, y, text, fontName);
+    }
+    const float red = color != nullptr ? color[0] : 1.0f;
+    const float green = color != nullptr ? color[1] : 1.0f;
+    const float blue = color != nullptr ? color[2] : 1.0f;
+    const float alpha = color != nullptr ? color[3] : 1.0f;
+    return flywithlua::panel::drawLegacyText(x, y, text, fontName, red, green, blue, alpha);
+}
+
+extern "C" double flywithlua_panel_measure_legacy_text(const char* text, const char* fontName) {
+    return flywithlua::panel::measureLegacyText(text, fontName);
+}

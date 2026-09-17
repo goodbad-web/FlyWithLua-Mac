@@ -16,14 +16,19 @@
  */
 #include <XPLMGraphics.h>
 #include <XPLMUtilities.h>
+#include "../Graphics/PanelGraphicsBackend.h"
+#include <cstring>
 #include <cstdint>
 #include <cctype>
+#include <stdexcept>
+#include <vector>
 #include "ImGUIIntegration.h"
+#include "FLWIntegration.h"
 
 namespace flwnd {
 
 ImGUIWindow::ImGUIWindow(int width, int height, int decoration):
-    FloatingWindow(width, height, decoration)
+    FloatingWindow(width, height, decoration, true)
 {
     imGuiContext = ImGui::CreateContext();
     ImGui::SetCurrentContext(imGuiContext);
@@ -65,16 +70,38 @@ ImGUIWindow::ImGUIWindow(int width, int height, int decoration):
     int fontTexWidth, fontTexHeight;
     io.Fonts->GetTexDataAsAlpha8(&pixels, &fontTexWidth, &fontTexHeight);
 
-    int textureId;
-    XPLMGenerateTextureNumbers(&textureId, 1);
-    fontTextureId = (GLuint) textureId;
+    panelRenderer = isPanelGraphics();
+    if (panelRenderer) {
+        std::vector<unsigned char> rgba(static_cast<size_t>(fontTexWidth) *
+                                        static_cast<size_t>(fontTexHeight) * 4u);
+        for (size_t index = 0; index < static_cast<size_t>(fontTexWidth) *
+                                     static_cast<size_t>(fontTexHeight); ++index) {
+            rgba[index * 4u + 0u] = 255;
+            rgba[index * 4u + 1u] = 255;
+            rgba[index * 4u + 2u] = 255;
+            rgba[index * 4u + 3u] = pixels[index];
+        }
+        panelFontTexture = flywithlua::panel::createTexture(rgba.data(), fontTexWidth, fontTexHeight);
+        if (panelFontTexture == nullptr) {
+            flywithlua::panel::disableForSession("Panel Graphics ImGui font texture creation failed");
+            throw std::runtime_error("Panel Graphics ImGui font texture creation failed");
+        }
+    }
 
-    XPLMBindTexture2d(fontTextureId, 0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, fontTexWidth, fontTexHeight, 0, GL_ALPHA, GL_UNSIGNED_BYTE, pixels);
-    io.Fonts->TexID = (void *)(intptr_t)(fontTextureId);
+    if (!panelRenderer) {
+        int textureId;
+        XPLMGenerateTextureNumbers(&textureId, 1);
+        fontTextureId = (GLuint) textureId;
+
+        XPLMBindTexture2d(fontTextureId, 0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, fontTexWidth, fontTexHeight, 0, GL_ALPHA, GL_UNSIGNED_BYTE, pixels);
+        io.Fonts->TexID = (void *)(intptr_t)(fontTextureId);
+    } else {
+        io.Fonts->TexID = panelFontTexture;
+    }
 }
 
 void ImGUIWindow::setBuildCallback(BuildCallback cb) {
@@ -90,6 +117,8 @@ void ImGUIWindow::onDraw() {
         return;
     }
 
+    const bool panelFrame = isPanelGraphics() &&
+        flywithlua::panel::beginPanelWindow(getXWindow());
     updateMatrices();
     try {
         buildGUI();
@@ -113,6 +142,9 @@ void ImGUIWindow::onDraw() {
     }
 
     FloatingWindow::onDraw();
+    if (panelFrame) {
+        flywithlua::panel::endPanelWindow();
+    }
 }
 
 void ImGUIWindow::buildGUI() {
@@ -162,6 +194,11 @@ void ImGUIWindow::showGUI() {
 
     // Avoid rendering when minimized, scale coordinates for retina displays (screen coordinates != framebuffer coordinates)
     drawData->ScaleClipRects(io.DisplayFramebufferScale);
+
+    if (panelRenderer) {
+        showPanelGUI();
+        return;
+    }
 
     // We are using the OpenGL fixed pipeline because messing with the
     // shader-state in X-Plane is not very well documented, but using the fixed
@@ -225,6 +262,78 @@ void ImGUIWindow::showGUI() {
     glBindTexture(GL_TEXTURE_2D, 0);
     glPopAttrib();
     glPopClientAttrib();
+}
+
+void ImGUIWindow::showPanelGUI() {
+    ImDrawData* drawData = ImGui::GetDrawData();
+    if (drawData == nullptr || drawData->CmdListsCount == 0 || !panelFontTexture) {
+        return;
+    }
+
+    static_assert(sizeof(ImDrawIdx) == sizeof(uint16_t),
+                  "Panel Graphics ImGui helper requires 16-bit ImDrawIdx");
+
+    std::vector<float> vertices;
+    std::vector<uint16_t> indices;
+    std::vector<flywithlua::panel::DrawCall> calls;
+    vertices.reserve(static_cast<size_t>(drawData->TotalVtxCount) * 5u);
+    indices.reserve(static_cast<size_t>(drawData->TotalIdxCount));
+
+    for (int listIndex = 0; listIndex < drawData->CmdListsCount; ++listIndex) {
+        const ImDrawList* commandList = drawData->CmdLists[listIndex];
+        const int vertexOffset = static_cast<int>(vertices.size() / 5u);
+        const size_t vertexBytes = static_cast<size_t>(commandList->VtxBuffer.Size) * sizeof(ImDrawVert);
+        const size_t oldFloatCount = vertices.size();
+        vertices.resize(oldFloatCount + static_cast<size_t>(commandList->VtxBuffer.Size) * 5u);
+        std::memcpy(vertices.data() + oldFloatCount, commandList->VtxBuffer.Data, vertexBytes);
+
+        const int indexOffset = static_cast<int>(indices.size());
+        indices.insert(indices.end(), commandList->IdxBuffer.Data,
+                       commandList->IdxBuffer.Data + commandList->IdxBuffer.Size);
+
+        for (int commandIndex = 0; commandIndex < commandList->CmdBuffer.Size; ++commandIndex) {
+            const ImDrawCmd* command = &commandList->CmdBuffer[commandIndex];
+            if (command->UserCallback != nullptr) {
+                command->UserCallback(commandList, command);
+                continue;
+            }
+            if (command->TextureId == nullptr || command->ElemCount == 0) {
+                continue;
+            }
+
+            void* texture = command->TextureId;
+            if (texture != panelFontTexture) {
+                texture = panelTextureForLegacyID(texture);
+                if (texture == nullptr) {
+                    continue;
+                }
+            }
+
+            flywithlua::panel::DrawCall drawCall;
+            drawCall.texture = texture;
+            drawCall.scissors[0] = command->ClipRect.x;
+            drawCall.scissors[1] = command->ClipRect.y;
+            drawCall.scissors[2] = command->ClipRect.z;
+            drawCall.scissors[3] = command->ClipRect.w;
+            drawCall.indexOffset = indexOffset + static_cast<int>(command->IdxOffset);
+            drawCall.elementCount = static_cast<int>(command->ElemCount);
+            drawCall.vertexOffset = vertexOffset + static_cast<int>(command->VtxOffset);
+            calls.push_back(drawCall);
+        }
+    }
+
+    if (vertices.empty() || indices.empty() || calls.empty()) {
+        return;
+    }
+
+    XPLMMesh_t mesh{};
+    mesh.vertex_count = static_cast<int>(vertices.size() / 5u);
+    mesh.vertices = vertices.data();
+    mesh.index_count = static_cast<int>(indices.size());
+    mesh.indices = indices.data();
+    if (!flywithlua::panel::drawCalls(mesh, calls)) {
+        flywithlua::panel::disableForSession("Panel Graphics ImGui draw failed");
+    }
 }
 
 bool ImGUIWindow::onClick(int x, int y, XPLMMouseStatus status) {
@@ -330,8 +439,14 @@ void ImGUIWindow::translateToImguiSpace(int inX, int inY, float& outX, float& ou
 }
 
 ImGUIWindow::~ImGUIWindow() {
+    if (panelFontTexture != nullptr) {
+        flywithlua::panel::destroyTexture(panelFontTexture);
+        panelFontTexture = nullptr;
+    }
     ImGui::DestroyContext(imGuiContext);
-    glDeleteTextures(1, &fontTextureId);
+    if (fontTextureId != 0) {
+        glDeleteTextures(1, &fontTextureId);
+    }
 }
 
 } /* namespace flwnd */

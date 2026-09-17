@@ -11,6 +11,8 @@
 #include "Fmod/FmodIntegration.h"
 #include "hidapi/hidapi.h"
 #include "Native3jFPS12/ThreeJFPSNative.h"
+#include "Graphics/PanelGraphicsBackend.h"
+#include "third_party/iniReader/inireader.h"
 #ifdef __APPLE__
 #include <OpenGL/gl.h>
 #else
@@ -32,6 +34,7 @@
 #include <sys/stat.h>
 #include <cerrno>
 #include <unordered_map>
+#include <unordered_set>
 
 lua_State* L = nullptr;
 // lState is defined in imgui_lua_bindings.cpp
@@ -125,6 +128,7 @@ static std::string gOnExitCommand;
 static std::string gMouseClickCommand;
 static std::string gMouseWheelCommand;
 static LuaCallbackEntries gDrawCallbacks;
+static LuaCallbackEntries gPanelDrawCallbacks;
 static LuaCallbackEntries gEveryFrameCallbacks;
 static LuaCallbackEntries gOftenCallbacks;
 static LuaCallbackEntries gSometimesCallbacks;
@@ -137,6 +141,7 @@ static int gMouseEventWindowTop = 0;
 static int gMouseEventWindowRight = 0;
 static int gMouseEventWindowBottom = 0;
 static bool gMouseEventWindowGeometryInitialized = false;
+static bool gMouseEventWindowPanelGraphics = false;
 static bool gMouseClickCaptured = false;
 static float gOftenAccumulator = 0.0f;
 static float gSometimesAccumulator = 0.0f;
@@ -148,6 +153,7 @@ static int gDiscoveredScriptCount = 0;
 static int gLoadedScriptCount = 0;
 static int gFailedScriptCount = 0;
 static std::vector<FlyWithLuaScriptFailure> gScriptLoadFailures;
+static bool gLoadingPanelScript = false;
 
 extern "C" void flywithlua_toggle_window(void);
 extern "C" void flywithlua_update_current_altitude(double altitude);
@@ -172,6 +178,7 @@ static void InvalidateAllLuaCallbackChunks();
 static void RunLuaCallbackEntries(LuaCallbackEntries& callbacks, const char* context);
 static bool AppendLuaCallback(lua_State* state, std::string& debugCode, LuaCallbackEntries& callbacks);
 static bool HasEnabledLuaCallbacks(const LuaCallbackEntries& callbacks);
+static bool IsBundledPanelScript(const std::string& fileName);
 static void UpdateLuaMouseGlobals();
 static void UpdateMouseEventWindowGeometry();
 static bool CreateMouseEventWindow();
@@ -1082,6 +1089,7 @@ static void InvalidateLuaCallbackEntries(LuaCallbackEntries& callbacks) {
 
 static void InvalidateAllLuaCallbackChunks() {
     InvalidateLuaCallbackEntries(gDrawCallbacks);
+    InvalidateLuaCallbackEntries(gPanelDrawCallbacks);
     InvalidateLuaCallbackEntries(gEveryFrameCallbacks);
     InvalidateLuaCallbackEntries(gOftenCallbacks);
     InvalidateLuaCallbackEntries(gSometimesCallbacks);
@@ -1205,10 +1213,28 @@ static bool LuaGlobalBoolean(const char* name) {
     return value;
 }
 
-static void MouseEventWindowDraw(XPLMWindowID /*inWindowID*/, void* /*inRefcon*/) {
-    if (flywithlua::LuaIsRunning) {
-        threejfps_draw_hud();
+static bool IsVREnabled() {
+    static XPLMDataRef vrEnabledRef = XPLMFindDataRef("sim/graphics/VR/enabled");
+    return vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
+}
+
+static void MouseEventWindowDraw(XPLMWindowID inWindowID, void* /*inRefcon*/) {
+    if (!flywithlua::LuaIsRunning) {
+        return;
     }
+
+    if (gMouseEventWindowPanelGraphics && flywithlua::panel::enabled() &&
+        flywithlua::panel::beginPanelWindow(inWindowID)) {
+        UpdateLuaMouseGlobals();
+        flywithlua::WeAreNotInDrawingState = false;
+        RunLuaCallbackEntries(gPanelDrawCallbacks, "do_every_draw[panel]");
+        threejfps_draw_hud();
+        flywithlua::WeAreNotInDrawingState = true;
+        flywithlua::panel::endPanelWindow();
+        return;
+    }
+
+    threejfps_draw_hud();
 }
 
 static void MouseEventWindowKey(XPLMWindowID /*inWindowID*/, char /*inKey*/, XPLMKeyFlags /*inFlags*/,
@@ -1341,11 +1367,26 @@ static bool CreateMouseEventWindow() {
     params.layer = xplm_WindowLayerFlightOverlay;
     params.refcon = nullptr;
 
+    // Panel Graphics windows are not used for the VR path; retain the
+    // existing OpenGL overlay behavior there.
+    const bool requestedPanel = flywithlua::panel::enabled() && !IsVREnabled();
+    if (requestedPanel) {
+        flywithlua::panel::configurePanelWindow(params);
+    } else {
+        flywithlua::panel::configureOpenGLWindow(params);
+    }
+
     gMouseEventWindow = XPLMCreateWindowEx(&params);
+    if (!gMouseEventWindow && requestedPanel) {
+        flywithlua::panel::disableForSession("Panel Graphics window creation failed");
+        flywithlua::panel::configureOpenGLWindow(params);
+        gMouseEventWindow = XPLMCreateWindowEx(&params);
+    }
     if (!gMouseEventWindow) {
         XPLMDebugString("FlyWithLua-Mac Warning: Could not create the mouse event window.\n");
         return false;
     }
+    gMouseEventWindowPanelGraphics = requestedPanel;
 
     gMouseEventWindowLeft = left;
     gMouseEventWindowTop = top;
@@ -1361,6 +1402,7 @@ static void DestroyMouseEventWindow() {
         gMouseEventWindow = nullptr;
     }
     gMouseEventWindowGeometryInitialized = false;
+    gMouseEventWindowPanelGraphics = false;
     gMouseClickCaptured = false;
 }
 
@@ -1398,6 +1440,10 @@ static int LuaXPLMSetGraphicsState(lua_State* state) {
         return 0;
     }
 
+    if (flywithlua::panel::panelDrawing()) {
+        return 0;
+    }
+
     XPLMSetGraphicsState(
         static_cast<int>(lua_tointeger(state, 1)),
         static_cast<int>(lua_tointeger(state, 2)),
@@ -1410,12 +1456,32 @@ static int LuaXPLMSetGraphicsState(lua_State* state) {
     return 0;
 }
 
+static flywithlua::panel::LegacyPrimitiveMode PanelPrimitiveMode(GLenum mode) {
+    switch (mode) {
+        case GL_POINTS: return flywithlua::panel::LegacyPrimitiveMode::Points;
+        case GL_LINES: return flywithlua::panel::LegacyPrimitiveMode::Lines;
+        case GL_LINE_STRIP: return flywithlua::panel::LegacyPrimitiveMode::LineStrip;
+        case GL_LINE_LOOP: return flywithlua::panel::LegacyPrimitiveMode::LineLoop;
+        case GL_POLYGON: return flywithlua::panel::LegacyPrimitiveMode::Polygon;
+        case GL_TRIANGLES: return flywithlua::panel::LegacyPrimitiveMode::Triangles;
+        case GL_TRIANGLE_STRIP: return flywithlua::panel::LegacyPrimitiveMode::TriangleStrip;
+        case GL_TRIANGLE_FAN: return flywithlua::panel::LegacyPrimitiveMode::TriangleFan;
+        case GL_QUADS: return flywithlua::panel::LegacyPrimitiveMode::Quads;
+        case GL_QUAD_STRIP: return flywithlua::panel::LegacyPrimitiveMode::QuadStrip;
+    }
+    return flywithlua::panel::LegacyPrimitiveMode::Lines;
+}
+
 static int LuaGLBegin(lua_State* state, GLenum mode, const char* functionName) {
     if (!LuaGraphicsCallAllowed(functionName)) {
         return 0;
     }
 
-    glBegin(mode);
+    if (flywithlua::panel::panelDrawing()) {
+        flywithlua::panel::beginPrimitive(PanelPrimitiveMode(mode));
+    } else {
+        glBegin(mode);
+    }
     return 0;
 }
 
@@ -1464,7 +1530,11 @@ static int LuaGLEnd(lua_State* state) {
         return 0;
     }
 
-    glEnd();
+    if (flywithlua::panel::panelDrawing()) {
+        flywithlua::panel::endPrimitive();
+    } else {
+        glEnd();
+    }
     return 0;
 }
 
@@ -1474,10 +1544,13 @@ static int LuaGLVertex2f(lua_State* state) {
         return 0;
     }
 
-    glVertex2f(
-        static_cast<float>(lua_tonumber(state, 1)),
-        static_cast<float>(lua_tonumber(state, 2))
-    );
+    const float x = static_cast<float>(lua_tonumber(state, 1));
+    const float y = static_cast<float>(lua_tonumber(state, 2));
+    if (flywithlua::panel::panelDrawing()) {
+        flywithlua::panel::vertex(x, y);
+    } else {
+        glVertex2f(x, y);
+    }
     return 0;
 }
 
@@ -1487,11 +1560,13 @@ static int LuaGLVertex3f(lua_State* state) {
         return 0;
     }
 
-    glVertex3f(
-        static_cast<float>(lua_tonumber(state, 1)),
-        static_cast<float>(lua_tonumber(state, 2)),
-        static_cast<float>(lua_tonumber(state, 3))
-    );
+    const float x = static_cast<float>(lua_tonumber(state, 1));
+    const float y = static_cast<float>(lua_tonumber(state, 2));
+    if (flywithlua::panel::panelDrawing()) {
+        flywithlua::panel::vertex(x, y);
+    } else {
+        glVertex3f(x, y, static_cast<float>(lua_tonumber(state, 3)));
+    }
     return 0;
 }
 
@@ -1501,7 +1576,12 @@ static int LuaGLLineWidth(lua_State* state) {
         return 0;
     }
 
-    glLineWidth(static_cast<float>(lua_tonumber(state, 1)));
+    const float width = static_cast<float>(lua_tonumber(state, 1));
+    if (flywithlua::panel::panelDrawing()) {
+        flywithlua::panel::setLineWidth(width);
+    } else {
+        glLineWidth(width);
+    }
     return 0;
 }
 
@@ -1511,11 +1591,14 @@ static int LuaGLColor3f(lua_State* state) {
         return 0;
     }
 
-    glColor3f(
-        static_cast<float>(lua_tonumber(state, 1)),
-        static_cast<float>(lua_tonumber(state, 2)),
-        static_cast<float>(lua_tonumber(state, 3))
-    );
+    const float red = static_cast<float>(lua_tonumber(state, 1));
+    const float green = static_cast<float>(lua_tonumber(state, 2));
+    const float blue = static_cast<float>(lua_tonumber(state, 3));
+    if (flywithlua::panel::panelDrawing()) {
+        flywithlua::panel::setColor(red, green, blue, 1.0f);
+    } else {
+        glColor3f(red, green, blue);
+    }
     return 0;
 }
 
@@ -1525,12 +1608,15 @@ static int LuaGLColor4f(lua_State* state) {
         return 0;
     }
 
-    glColor4f(
-        static_cast<float>(lua_tonumber(state, 1)),
-        static_cast<float>(lua_tonumber(state, 2)),
-        static_cast<float>(lua_tonumber(state, 3)),
-        static_cast<float>(lua_tonumber(state, 4))
-    );
+    const float red = static_cast<float>(lua_tonumber(state, 1));
+    const float green = static_cast<float>(lua_tonumber(state, 2));
+    const float blue = static_cast<float>(lua_tonumber(state, 3));
+    const float alpha = static_cast<float>(lua_tonumber(state, 4));
+    if (flywithlua::panel::panelDrawing()) {
+        flywithlua::panel::setColor(red, green, blue, alpha);
+    } else {
+        glColor4f(red, green, blue, alpha);
+    }
     return 0;
 }
 
@@ -1552,7 +1638,11 @@ static int LuaGLRectf(lua_State* state) {
         std::swap(y1, y2);
     }
 
-    glRectf(x1, y1, x2, y2);
+    if (flywithlua::panel::panelDrawing()) {
+        flywithlua::panel::drawFilledRect(x1, y1, x2, y2);
+    } else {
+        glRectf(x1, y1, x2, y2);
+    }
     return 0;
 }
 
@@ -1570,6 +1660,19 @@ static bool HasFlyWithLuaScriptExtension(const std::string& fileName) {
     };
 
     return hasSuffix(".lua") || hasSuffix(".fwl") || hasSuffix(".lua64") || hasSuffix(".lua32");
+}
+
+static bool IsBundledPanelScript(const std::string& fileName) {
+    // This manifest is deliberately explicit.  Only scripts shipped with
+    // FlyWithLua-Mac are allowed into the Panel Graphics callback group;
+    // arbitrary user do_every_draw() scripts retain the legacy OpenGL path.
+    static const std::unordered_set<std::string> manifest = {
+        "3jFPS12.lua",
+        "HUD-G1000.lua",
+        "LandingRate.lua",
+        "visual_trim_system.lua",
+    };
+    return manifest.find(fileName) != manifest.end();
 }
 
 static bool IsExistingDirectory(const std::string& path) {
@@ -2602,7 +2705,8 @@ static void PollPositiveEdgeFlips() {
 }
 
 static int LuaDoEveryDrawCallback(lua_State* state) {
-    AppendLuaCallback(state, gDrawCommand, gDrawCallbacks);
+    AppendLuaCallback(state, gDrawCommand,
+                      gLoadingPanelScript ? gPanelDrawCallbacks : gDrawCallbacks);
     return 0;
 }
 
@@ -3198,6 +3302,8 @@ DataRef = dataref
     fmodint::RegisterFmodFunctionsToLua(L);
 
     flywithlua::process_read_ini_file();
+    flywithlua::panel::configureBackend(getOptionToString("DrawBackend"));
+    flywithlua::panel::initialize();
 
     if (registerFlightLoop) {
         XPLMRegisterFlightLoopCallback(FlightLoopCallback, -1.0f, nullptr);
@@ -3279,6 +3385,7 @@ namespace flywithlua {
         for (const std::string& fileName : fileNames) {
             std::string fullPath = JoinPath(scriptDir, fileName);
             logMsg(logToDevCon, "Loading script: " + fileName);
+            gLoadingPanelScript = IsBundledPanelScript(fileName);
             if (luaL_dofile(FWLLua, fullPath.c_str())) {
                 const char* luaError = lua_tostring(FWLLua, -1);
                 std::string errorMessage = luaError ? luaError : "Unknown Lua error";
@@ -3289,6 +3396,7 @@ namespace flywithlua {
             } else {
                 ++loadedScripts;
             }
+            gLoadingPanelScript = false;
         }
 
         gLoadedScriptCount = loadedScripts;
@@ -3344,7 +3452,10 @@ int FlyWithLuaDrawCallback(XPLMDrawingPhase /*inPhase*/, int /*inIsBefore*/, voi
         return 1;
     }
 
-    if (!HasEnabledLuaCallbacks(gDrawCallbacks)) {
+    const bool runLegacyGroup = HasEnabledLuaCallbacks(gDrawCallbacks);
+    const bool runPanelFallbackGroup = !flywithlua::panel::enabled() &&
+                                       HasEnabledLuaCallbacks(gPanelDrawCallbacks);
+    if (!runLegacyGroup && !runPanelFallbackGroup) {
         return 1;
     }
 
@@ -3353,7 +3464,12 @@ int FlyWithLuaDrawCallback(XPLMDrawingPhase /*inPhase*/, int /*inIsBefore*/, voi
     // Establish the 2D state expected by legacy FlyWithLua drawing scripts.
     XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
     flywithlua::WeAreNotInDrawingState = false;
-    RunLuaCallbackEntries(gDrawCallbacks, "do_every_draw");
+    if (runLegacyGroup) {
+        RunLuaCallbackEntries(gDrawCallbacks, "do_every_draw");
+    }
+    if (runPanelFallbackGroup) {
+        RunLuaCallbackEntries(gPanelDrawCallbacks, "do_every_draw[panel-fallback]");
+    }
     flywithlua::WeAreNotInDrawingState = true;
     return 1;
 }
@@ -3401,6 +3517,7 @@ PLUGIN_API void XPluginStop(void) {
         RunLuaCallbackEntries(gOnExitCallbacks, "do_on_exit");
         
         flwnd::deinitFloatingWindowSupport();
+        flywithlua::panel::shutdown();
         fmodint::fmod_uninitialize();
         UnregisterFlyWithLuaMenu();
         ClearFlyWithLuaCommands();

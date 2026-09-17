@@ -24,7 +24,7 @@ public:
     using CloseCallback = std::function<void(FloatingWindow &)>;
     using KeyCallback = std::function<void(FloatingWindow &, char, char, XPLMKeyFlags)>;
 
-    FloatingWindow(int winWidth, int winHeight, int winDecoration);
+    FloatingWindow(int winWidth, int winHeight, int winDecoration, bool panelGraphics = false);
     void setDrawCallback(DrawCallback cb);
     void setClickCallback(ClickCallback cb);
     void setCloseCallback(CloseCallback cb);
@@ -54,6 +54,7 @@ public:
     bool getIsCmdVisible();
 
     XPLMWindowID getXWindow();
+    bool isPanelGraphics() const;
     virtual ~FloatingWindow();
 
 protected:
@@ -68,6 +69,7 @@ protected:
 private:
     XPLMWindowID window{};
     int width, height, decoration;
+    bool panelGraphics = false;
     bool isInVR = false;
 
     bool isCmdVisible = false;

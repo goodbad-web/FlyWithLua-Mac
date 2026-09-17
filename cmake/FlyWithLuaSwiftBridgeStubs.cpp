@@ -13,6 +13,7 @@
 #include "XPLMGraphics.h"
 #include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
+#include "../src/Graphics/PanelGraphicsBackend.h"
 #include "lua.hpp"
 
 #ifdef __APPLE__
@@ -385,6 +386,13 @@ static int luaDrawString(lua_State* state) {
         fontName = lua_tolstring(state, 4, nullptr);
     }
 
+    if (flywithlua::panel::panelDrawing()) {
+        const int x = static_cast<int>(lua_tointeger(state, 1));
+        const int y = static_cast<int>(lua_tointeger(state, 2));
+        flywithlua_panel_draw_legacy_text(x, y, text, fontName, nullptr);
+        return 0;
+    }
+
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
     if (lua_gettop(state) >= 8 && lua_isnumber(state, 5) &&
         lua_isnumber(state, 6) && lua_isnumber(state, 7) &&
@@ -424,6 +432,12 @@ static int luaMeasureString(lua_State* state) {
         lua_pushnumber(state, 0.0);
         return 1;
     }
+    const double panelWidth = flywithlua_panel_measure_legacy_text(
+        text, fontName != nullptr ? fontName : "Helvetica_12");
+    if (panelWidth >= 0.0) {
+        lua_pushnumber(state, panelWidth);
+        return 1;
+    }
     const float width = XPLMMeasureString(
         fontIDForName(fontName != nullptr ? fontName : "Helvetica_12"),
         text,
@@ -444,6 +458,19 @@ static int luaDrawHiDPIString(lua_State* state) {
     const char* family = nullptr;
     if (lua_gettop(state) >= 5) {
         family = lua_tolstring(state, 5, nullptr);
+    }
+
+    if (flywithlua::panel::panelDrawing()) {
+        const int x = static_cast<int>(lua_tonumber(state, 1));
+        const int y = static_cast<int>(lua_tonumber(state, 2));
+        const float size = static_cast<float>(lua_tonumber(state, 4));
+        const int rendered = flywithlua_panel_draw_hidpi_text(x, y, text, size,
+                                                               family != nullptr ? family : "sf_pro_text",
+                                                               lua_gettop(state) >= 6
+                                                                   ? static_cast<int>(lua_tointeger(state, 6))
+                                                                   : 400);
+        lua_pushboolean(state, rendered != 0);
+        return 1;
     }
 
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -470,6 +497,14 @@ static int luaMeasureHiDPIString(lua_State* state) {
     const char* family = nullptr;
     if (lua_gettop(state) >= 3) {
         family = lua_tolstring(state, 3, nullptr);
+    }
+    const double panelWidth = flywithlua_panel_measure_hidpi_text(
+        text, static_cast<float>(lua_tonumber(state, 2)),
+        family != nullptr ? family : "sf_pro_text",
+        lua_gettop(state) >= 4 ? static_cast<int>(lua_tointeger(state, 4)) : 400);
+    if (panelWidth >= 0.0) {
+        lua_pushnumber(state, panelWidth);
+        return 1;
     }
     const float width = XPLMMeasureString(
         fontIDForHiDPIFamily(family),
@@ -508,6 +543,10 @@ extern "C" int flywithlua_draw_hidpi_text(int x,
         return 0;
     }
 
+    if (flywithlua_panel_draw_hidpi_text(x, y, text, logicalSize, family, weight) != 0) {
+        return 1;
+    }
+
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
     glGetFloatv(GL_CURRENT_COLOR, color);
     XPLMDrawString(color,
@@ -527,6 +566,11 @@ extern "C" double flywithlua_measure_hidpi_text(const char* text,
     (void)weight;
     if (text == nullptr) {
         return -1.0;
+    }
+
+    const double panelWidth = flywithlua_panel_measure_hidpi_text(text, logicalSize, family, weight);
+    if (panelWidth >= 0.0) {
+        return panelWidth;
     }
 
     const std::string value(text);

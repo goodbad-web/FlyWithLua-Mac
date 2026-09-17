@@ -49,14 +49,17 @@ protected:
     void onKey(char key, XPLMKeyFlags flags, char virtualKey, bool losingFocus) override;
 private:
     GLuint fontTextureId{};
+    void* panelFontTexture{};
     ImGuiContext *imGuiContext{};
     int mLeft{}, mTop{}, mRight{}, mBottom{};
     ErrorHandler onError;
     BuildCallback doBuild;
     bool stopped = false;
+    bool panelRenderer = false;
 
     void buildGUI();
     void showGUI();
+    void showPanelGUI();
 
     void translateImguiToBoxel(float inX, float inY, int &outX, int &outY);
     void translateToImguiSpace(int inX, int inY, float &outX, float &outY);

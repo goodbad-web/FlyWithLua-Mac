@@ -27,6 +27,14 @@ void flywithlua_toggle_window(void);
 void flywithlua_update_3jfps_snapshot(const char* jsonPayload);
 void flywithlua_show_3jfps_settings(void);
 void threejfps_enqueue_command(const char* jsonCommand);
+int flywithlua_panel_draw_hidpi_text(int x, int y, const char* text, float logicalSize,
+                                     const char* family, int weight);
+int flywithlua_panel_is_drawing(void);
+double flywithlua_panel_measure_hidpi_text(const char* text, float logicalSize,
+                                           const char* family, int weight);
+int flywithlua_panel_draw_legacy_text(int x, int y, const char* text,
+                                      const char* fontName, const float* color);
+double flywithlua_panel_measure_legacy_text(const char* text, const char* fontName);
 
 #include <OpenGL/gl.h>
 

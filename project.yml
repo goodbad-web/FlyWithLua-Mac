@@ -67,6 +67,7 @@ targets:
           - XPLM301=1
           - XPLM303=1
           - XPLM400=1
+          - XPLM440=1
           - GL_SILENCE_DEPRECATION=1
           - luaL_reg=luaL_Reg
           - LUASOCKET_API=

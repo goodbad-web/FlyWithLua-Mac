@@ -1,20 +1,23 @@
 #!/bin/bash
 
-# Fetch X-Plane SDK 4.0 and organize it into the include directory
+# Fetch X-Plane SDK 4.4 beta and organize it into the include directory.
+# X-Plane 12.4.4 exposes Panel Graphics through SDK 4.4; the plugin still
+# resolves those symbols at runtime so older X-Plane versions can fall back to
+# the legacy OpenGL path.
 
 set -Eeuo pipefail
 
-SDK_URL="https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK400.zip"
+SDK_URL="https://www.x-plane.com/wp-content/uploads/2026/09/XPSDK440b1.zip"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SDK_ZIP="$REPO_ROOT/build/SDK400.zip"
-SDK_EXTRACT_DIR="$REPO_ROOT/build/SDK400"
+SDK_ZIP="$REPO_ROOT/build/SDK440b1.zip"
+SDK_EXTRACT_DIR="$REPO_ROOT/build/SDK440b1"
 INCLUDE_DIR="$REPO_ROOT/include"
 
 mkdir -p "$REPO_ROOT/build"
 mkdir -p "$INCLUDE_DIR"
 
 if [ ! -f "$SDK_ZIP" ]; then
-    echo "Downloading X-Plane SDK 4.0..."
+    echo "Downloading X-Plane SDK 4.4 beta..."
     curl -fL --retry 3 --retry-all-errors --silent --show-error "$SDK_URL" -o "$SDK_ZIP"
 fi
 

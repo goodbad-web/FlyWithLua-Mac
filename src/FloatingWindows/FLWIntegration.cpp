@@ -7,6 +7,8 @@
 #include <vector>
 #include <memory>
 #include <stdexcept>
+#include <cstdint>
+#include <unordered_map>
 #include <sol.hpp>
 #include <iostream>
 #ifdef __APPLE__
@@ -20,6 +22,7 @@
 #include "FLWIntegration.h"
 #include "FloatingWindow.h"
 #include "ImGUIIntegration.h"
+#include "../Graphics/PanelGraphicsBackend.h"
 #include "../FlyWithLua.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -48,8 +51,10 @@ typedef void(CallbackSetter)(sol::light<FloatingWindow>, CallbackProvider const&
 
 std::vector<std::shared_ptr<FloatingWindow>> floatingWindows;
 std::vector<GLuint> textureIDs;
+std::vector<void*> panelTextureIDs;
+std::unordered_map<uintptr_t, void*> panelTextureByOpenGLID;
 
-int loadImage(const std::string&fileName) {
+intptr_t loadImage(const std::string&fileName) {
     int imgWidth, imgHeight, nComps;
     uint8_t *data = stbi_load(fileName.c_str(), &imgWidth, &imgHeight, &nComps, sizeof(uint32_t));
 
@@ -67,10 +72,25 @@ int loadImage(const std::string&fileName) {
             GL_RGBA, imgWidth, imgHeight, 0,
             GL_RGBA, GL_UNSIGNED_BYTE, data);
 
+    void* panelTexture = nullptr;
+    if (flywithlua::panel::enabled()) {
+        panelTexture = flywithlua::panel::createTexture(data, imgWidth, imgHeight);
+    }
     stbi_image_free(data);
     textureIDs.push_back(id);
 
+    if (panelTexture != nullptr) {
+        panelTextureIDs.push_back(panelTexture);
+        panelTextureByOpenGLID[static_cast<uintptr_t>(id)] = panelTexture;
+    }
+
     return id;
+}
+
+void* panelTextureForLegacyID(void* legacyTextureID) {
+    const auto key = reinterpret_cast<uintptr_t>(legacyTextureID);
+    const auto found = panelTextureByOpenGLID.find(key);
+    return found != panelTextureByOpenGLID.end() ? found->second : nullptr;
 }
 
 int LuaCreateFloatingWindow(lua_State *L) {
@@ -163,8 +183,8 @@ int LuaLoadFloatinWindowImage(lua_State *L) {
 
     std::string name = lua_tostring(L, 1);
     try {
-        int id = loadImage(name);
-        lua_pushinteger(L, id);
+        intptr_t id = loadImage(name);
+        lua_pushinteger(L, static_cast<lua_Integer>(id));
         return 1;
     } catch (const std::exception &e) {
         std::string err = std::string("FlyWithLua Error: Couldn't load image: ") + e.what() + " in " + name;
@@ -195,7 +215,9 @@ void LuaSetOnDrawCallback(sol::light<FloatingWindow> wnd, CallbackProvider const
         int left, top, right, bottom;
         XPLMGetWindowGeometry(window, &left, &top, &right, &bottom);
 
-        XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
+        if (!flywithlua::panel::panelDrawing()) {
+            XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
+        }
 
         flywithlua::WeAreNotInDrawingState = false;
         flywithlua::CopyDataRefsToLua();
@@ -668,6 +690,11 @@ void initFloatingWindowSupport() {
 
 void deinitFloatingWindowSupport() {
     floatingWindows.clear();
+    for (void* texture : panelTextureIDs) {
+        flywithlua::panel::destroyTexture(texture);
+    }
+    panelTextureIDs.clear();
+    panelTextureByOpenGLID.clear();
     if (!textureIDs.empty()) {
         glDeleteTextures(static_cast<GLsizei>(textureIDs.size()), textureIDs.data());
         textureIDs.clear();

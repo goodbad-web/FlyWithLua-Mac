@@ -18,6 +18,7 @@
 #include <memory>
 #include <stdexcept>
 #include "FloatingWindow.h"
+#include "../Graphics/PanelGraphicsBackend.h"
 #include "../FlyWithLua.h"
 
 namespace {
@@ -33,10 +34,11 @@ void multMatrixVec4f(GLfloat dst[4], const GLfloat m[16], const GLfloat v[4]) {
 
 namespace flwnd {
 
-FloatingWindow::FloatingWindow(int winWidth, int winHeight, int winDecoration):
+FloatingWindow::FloatingWindow(int winWidth, int winHeight, int winDecoration, bool usePanelGraphics):
     width(winWidth),
     height(winHeight),
-    decoration(winDecoration)
+    decoration(winDecoration),
+    panelGraphics(usePanelGraphics)
 {
     vrEnabledRef = XPLMFindDataRef("sim/graphics/VR/enabled");
     modeliewMatrixRef = XPLMFindDataRef("sim/graphics/view/modelview_matrix");
@@ -83,8 +85,23 @@ void FloatingWindow::createWindow() {
     params.layer = xplm_WindowLayerFloatingWindows;
 
     params.decorateAsFloatingWindow = decoration;
+    const bool vrEnabled = vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
+    const bool requestedPanel = panelGraphics && flywithlua::panel::enabled() && !vrEnabled;
+    panelGraphics = requestedPanel;
+    if (requestedPanel) {
+        flywithlua::panel::configurePanelWindow(params);
+    } else {
+        flywithlua::panel::configureOpenGLWindow(params);
+    }
 
     window = XPLMCreateWindowEx(&params);
+
+    if (!window && requestedPanel) {
+        flywithlua::panel::disableForSession("Panel Graphics floating window creation failed");
+        panelGraphics = false;
+        flywithlua::panel::configureOpenGLWindow(params);
+        window = XPLMCreateWindowEx(&params);
+    }
 
     if (!window) {
         throw std::runtime_error("Couldn't create window");
@@ -302,6 +319,10 @@ bool FloatingWindow::onMouseWheel(int x, int y, int wheel, int clicks) {
 
 XPLMWindowID FloatingWindow::getXWindow() {
     return window;
+}
+
+bool FloatingWindow::isPanelGraphics() const {
+    return panelGraphics;
 }
 
 FloatingWindow::~FloatingWindow() {
