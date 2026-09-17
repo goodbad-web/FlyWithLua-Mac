@@ -65,6 +65,9 @@ public func flywithlua_draw_hidpi_text(_ x: Int32,
     if flywithlua_panel_draw_hidpi_text(x, y, text, logicalSize, family, weight) != 0 {
         return 1
     }
+    if flywithlua_panel_is_drawing() != 0 {
+        return 0
+    }
 
     let familyName = family.map { String(cString: $0) } ?? "sf_pro_text"
     let rendered = HUDTextRenderer.shared.draw(
@@ -405,6 +408,11 @@ public func l_draw_hidpi_string(L: OpaquePointer?) -> Int32 {
     }
     if panelRendered != 0 {
         lua_pushboolean(L, 1)
+        lua_pushboolean(L, 0)
+        return 2
+    }
+    if flywithlua_panel_is_drawing() != 0 {
+        lua_pushboolean(L, 0)
         lua_pushboolean(L, 0)
         return 2
     }

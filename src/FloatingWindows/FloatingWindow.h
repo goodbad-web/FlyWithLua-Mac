@@ -71,9 +71,19 @@ protected:
 private:
     XPLMWindowID window{};
     int width, height, decoration;
+    bool panelGraphicsRequested = false;
     bool panelGraphics = false;
     std::uint64_t ownerScript = 0;
     bool isInVR = false;
+
+    int saved2DLeft = 0;
+    int saved2DTop = 0;
+    int saved2DRight = 0;
+    int saved2DBottom = 0;
+    bool saved2DGeometryValid = false;
+    int savedVRWidth = 0;
+    int savedVRHeight = 0;
+    bool savedVRGeometryValid = false;
 
     bool isCmdVisible = false;
 
@@ -90,7 +100,9 @@ private:
     CloseCallback onCloseCB;
     KeyCallback onKeyCB;
     
-    void createWindow();
+    void createWindow(bool usePanelGraphics);
+    void recreateWindow(bool usePanelGraphics);
+    void applyVRPositioning(bool vrEnabled);
 };
 
 } // namespace flwnd

@@ -39,6 +39,7 @@ FloatingWindow::FloatingWindow(int winWidth, int winHeight, int winDecoration,
     width(winWidth),
     height(winHeight),
     decoration(winDecoration),
+    panelGraphicsRequested(usePanelGraphics),
     panelGraphics(usePanelGraphics),
     ownerScript(ownerScriptId)
 {
@@ -47,14 +48,16 @@ FloatingWindow::FloatingWindow(int winWidth, int winHeight, int winDecoration,
     viewportRef = XPLMFindDataRef("sim/graphics/view/viewport");
     projectionMatrixRef = XPLMFindDataRef("sim/graphics/view/projection_matrix");
 
-    createWindow();
+    const bool vrEnabled = vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
+    createWindow(usePanelGraphics && flywithlua::panel::enabled() && !vrEnabled);
+    moveFromOrToVR();
 }
 
-void FloatingWindow::createWindow() {
+void FloatingWindow::createWindow(bool usePanelGraphics) {
     int winLeft, winTop, winRight, winBot;
     XPLMGetScreenBoundsGlobal(&winLeft, &winTop, &winRight, &winBot);
 
-    XPLMCreateWindow_t params;
+    XPLMCreateWindow_t params{};
     params.structSize = sizeof(params);
     params.left = winLeft + 100 ;
     params.right = winLeft + 100 + width;
@@ -88,7 +91,7 @@ void FloatingWindow::createWindow() {
 
     params.decorateAsFloatingWindow = decoration;
     const bool vrEnabled = vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
-    const bool requestedPanel = panelGraphics && flywithlua::panel::enabled() && !vrEnabled;
+    const bool requestedPanel = usePanelGraphics && flywithlua::panel::enabled() && !vrEnabled;
     panelGraphics = requestedPanel;
     if (requestedPanel) {
         flywithlua::panel::configurePanelWindow(params);
@@ -113,7 +116,42 @@ void FloatingWindow::createWindow() {
         flywithlua::panel::registerWindow(window);
     }
 
-    moveFromOrToVR();
+}
+
+void FloatingWindow::recreateWindow(bool usePanelGraphics) {
+    if (window == nullptr) {
+        createWindow(usePanelGraphics);
+        return;
+    }
+
+    const bool wasInVR = isInVR;
+    const bool wasVisible = XPLMGetWindowIsVisible(window) != 0;
+    if (wasInVR) {
+        XPLMGetWindowGeometryVR(window, &savedVRWidth, &savedVRHeight);
+        savedVRGeometryValid = savedVRWidth > 0 && savedVRHeight > 0;
+    } else {
+        XPLMGetWindowGeometry(window, &saved2DLeft, &saved2DTop,
+                              &saved2DRight, &saved2DBottom);
+        saved2DGeometryValid = saved2DRight > saved2DLeft && saved2DTop > saved2DBottom;
+    }
+
+    if (panelGraphics) {
+        flywithlua::panel::unregisterWindow(window);
+    }
+    XPLMDestroyWindow(window);
+    window = nullptr;
+
+    createWindow(usePanelGraphics);
+
+    const bool vrEnabled = vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
+    applyVRPositioning(vrEnabled);
+    if (vrEnabled && savedVRGeometryValid) {
+        XPLMSetWindowGeometryVR(window, savedVRWidth, savedVRHeight);
+    } else if (!vrEnabled && saved2DGeometryValid) {
+        XPLMSetWindowGeometry(window, saved2DLeft, saved2DTop,
+                              saved2DRight, saved2DBottom);
+    }
+    XPLMSetWindowIsVisible(window, wasVisible ? 1 : 0);
 }
 
 void FloatingWindow::setDrawCallback(DrawCallback cb) {
@@ -227,7 +265,22 @@ bool FloatingWindow::getIsCmdVisible() {
 }
 
 void FloatingWindow::moveFromOrToVR() {
-    bool vrEnabled = XPLMGetDatai(vrEnabledRef);
+    const bool vrEnabled = vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
+    const bool shouldUsePanelGraphics = panelGraphicsRequested &&
+        flywithlua::panel::enabled() && !vrEnabled;
+
+    // XPLMWindow contentType is fixed at creation time. Switch between the
+    // Panel Graphics and OpenGL implementations at the safe flight-loop
+    // boundary instead of trying to draw through the wrong API.
+    if (shouldUsePanelGraphics != panelGraphics) {
+        recreateWindow(shouldUsePanelGraphics);
+        return;
+    }
+
+    applyVRPositioning(vrEnabled);
+}
+
+void FloatingWindow::applyVRPositioning(bool vrEnabled) {
 
     if (vrEnabled && !isInVR) {
         // X-Plane switched to VR but our window isn't in VR

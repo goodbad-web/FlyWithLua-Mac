@@ -238,6 +238,7 @@ static bool IsBundledPanelScript(const std::string& fileName);
 static void UpdateLuaMouseGlobals();
 static void UpdateMouseEventWindowGeometry();
 static bool CreateMouseEventWindow();
+static void ReconcileMouseEventWindowBackend();
 static void DestroyMouseEventWindow();
 static void FlyWithLuaMenuHandler(void*, void*);
 static void FlyWithLuaMacroMenuHandler(void*, void*);
@@ -1433,7 +1434,13 @@ static void MouseEventWindowDraw(XPLMWindowID inWindowID, void* /*inRefcon*/) {
         return;
     }
 
-    if (gMouseEventWindowPanelGraphics && flywithlua::panel::enabled()) {
+    if (gMouseEventWindowPanelGraphics) {
+        // The XPLM content type is immutable. Until the next flight-loop
+        // recreates this window, do not execute either renderer through a
+        // disabled Panel Graphics window.
+        if (!flywithlua::panel::enabled()) {
+            return;
+        }
         flywithlua::panel::PanelDrawScope panelScope(inWindowID);
         if (!panelScope.active()) {
             return;
@@ -1447,6 +1454,9 @@ static void MouseEventWindowDraw(XPLMWindowID inWindowID, void* /*inRefcon*/) {
         return;
     }
 
+    UpdateLuaMouseGlobals();
+    RunLuaCallbackEntries(LuaCallbackKind::CompatPanelDraw, gPanelDrawCallbacks,
+                          "do_every_draw[opengl-fallback]");
     threejfps_draw_hud();
 }
 
@@ -1610,6 +1620,30 @@ static bool CreateMouseEventWindow() {
     gMouseEventWindowBottom = bottom;
     gMouseEventWindowGeometryInitialized = true;
     return true;
+}
+
+static void ReconcileMouseEventWindowBackend() {
+    if (!gMouseEventWindow) {
+        return;
+    }
+
+    const bool shouldUsePanelGraphics = flywithlua::panel::enabled() && !IsVREnabled();
+    if (shouldUsePanelGraphics == gMouseEventWindowPanelGraphics) {
+        return;
+    }
+
+    const bool wasVisible = XPLMGetWindowIsVisible(gMouseEventWindow) != 0;
+
+    DestroyMouseEventWindow();
+    if (!CreateMouseEventWindow()) {
+        return;
+    }
+
+    // CreateMouseEventWindow initializes this overlay to the current screen
+    // bounds. Re-apply that invariant instead of reading 2D geometry from a
+    // window that may have just been in VR.
+    UpdateMouseEventWindowGeometry();
+    XPLMSetWindowIsVisible(gMouseEventWindow, wasVisible ? 1 : 0);
 }
 
 static void DestroyMouseEventWindow() {
@@ -3747,6 +3781,7 @@ namespace flywithlua {
 
 float FlightLoopCallback(float inElapsedSinceLastCall, float inElapsedTimeSinceLastFlightLoop, int inCounter, void * inRefcon) {
     UpdateMouseEventWindowGeometry();
+    ReconcileMouseEventWindowBackend();
     if (!flywithlua::LuaIsRunning) return 0.0f;
 
     // 3jFPS12 is deliberately stepped here in native code. The Lua adapter

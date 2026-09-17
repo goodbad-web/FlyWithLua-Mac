@@ -58,8 +58,9 @@ private:
     bool panelRenderer = false;
 
     void buildGUI();
-    void showGUI();
+    void showGUI(bool panelFrame);
     void showPanelGUI();
+    bool syncFontTexture(bool usePanelGraphics);
 
     void translateImguiToBoxel(float inX, float inY, int &outX, int &outY);
     void translateToImguiSpace(int inX, int inY, float &outX, float &outY);

@@ -68,42 +68,72 @@ ImGUIWindow::ImGUIWindow(int width, int height, int decoration, std::uint64_t ow
     io.KeyMap[ImGuiKey_Y] = XPLM_VK_Y;
     io.KeyMap[ImGuiKey_Z] = XPLM_VK_Z;
 
-    uint8_t *pixels;
-    int fontTexWidth, fontTexHeight;
-    io.Fonts->GetTexDataAsAlpha8(&pixels, &fontTexWidth, &fontTexHeight);
-
     panelRenderer = isPanelGraphics();
-    if (panelRenderer) {
-        std::vector<unsigned char> rgba(static_cast<size_t>(fontTexWidth) *
-                                        static_cast<size_t>(fontTexHeight) * 4u);
-        for (size_t index = 0; index < static_cast<size_t>(fontTexWidth) *
-                                     static_cast<size_t>(fontTexHeight); ++index) {
-            rgba[index * 4u + 0u] = 255;
-            rgba[index * 4u + 1u] = 255;
-            rgba[index * 4u + 2u] = 255;
-            rgba[index * 4u + 3u] = pixels[index];
-        }
-        panelFontTexture = flywithlua::panel::createTexture(rgba.data(), fontTexWidth, fontTexHeight);
-        if (panelFontTexture == nullptr) {
+    if (!syncFontTexture(panelRenderer)) {
+        if (panelRenderer) {
             flywithlua::panel::disableForSession("Panel Graphics ImGui font texture creation failed");
-            throw std::runtime_error("Panel Graphics ImGui font texture creation failed");
         }
+        throw std::runtime_error("Could not create ImGui font texture");
+    }
+}
+
+bool ImGUIWindow::syncFontTexture(bool usePanelGraphics) {
+    ImGui::SetCurrentContext(imGuiContext);
+    auto& io = ImGui::GetIO();
+
+    if (usePanelGraphics) {
+        if (panelFontTexture == nullptr) {
+            uint8_t* pixels = nullptr;
+            int fontTexWidth = 0;
+            int fontTexHeight = 0;
+            io.Fonts->GetTexDataAsAlpha8(&pixels, &fontTexWidth, &fontTexHeight);
+            std::vector<unsigned char> rgba(static_cast<size_t>(fontTexWidth) *
+                                            static_cast<size_t>(fontTexHeight) * 4u);
+            for (size_t index = 0; index < static_cast<size_t>(fontTexWidth) *
+                                         static_cast<size_t>(fontTexHeight); ++index) {
+                rgba[index * 4u + 0u] = 255;
+                rgba[index * 4u + 1u] = 255;
+                rgba[index * 4u + 2u] = 255;
+                rgba[index * 4u + 3u] = pixels[index];
+            }
+            panelFontTexture = flywithlua::panel::createTexture(rgba.data(),
+                                                                 fontTexWidth,
+                                                                 fontTexHeight);
+            if (panelFontTexture == nullptr) {
+                return false;
+            }
+        }
+        // Do not call OpenGL from a Panel Graphics callback. Keep the old
+        // OpenGL texture name around and reuse it if the window returns to
+        // OpenGL later; it is released by the window destructor.
+        panelRenderer = true;
+        io.Fonts->TexID = panelFontTexture;
+        return true;
     }
 
-    if (!panelRenderer) {
-        int textureId;
+    if (fontTextureId == 0) {
+        uint8_t* pixels = nullptr;
+        int fontTexWidth = 0;
+        int fontTexHeight = 0;
+        io.Fonts->GetTexDataAsAlpha8(&pixels, &fontTexWidth, &fontTexHeight);
+        int textureId = 0;
         XPLMGenerateTextureNumbers(&textureId, 1);
-        fontTextureId = (GLuint) textureId;
+        fontTextureId = static_cast<GLuint>(textureId);
 
         XPLMBindTexture2d(fontTextureId, 0);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, fontTexWidth, fontTexHeight, 0, GL_ALPHA, GL_UNSIGNED_BYTE, pixels);
-        io.Fonts->TexID = (void *)(intptr_t)(fontTextureId);
-    } else {
-        io.Fonts->TexID = panelFontTexture;
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, fontTexWidth, fontTexHeight, 0,
+                     GL_ALPHA, GL_UNSIGNED_BYTE, pixels);
     }
+    if (panelFontTexture != nullptr) {
+        flywithlua::panel::destroyTexture(panelFontTexture);
+        panelFontTexture = nullptr;
+    }
+    panelRenderer = false;
+    io.Fonts->TexID = reinterpret_cast<void*>(static_cast<intptr_t>(fontTextureId));
+    return true;
 }
 
 void ImGUIWindow::setBuildCallback(BuildCallback cb) {
@@ -119,14 +149,22 @@ void ImGUIWindow::onDraw() {
         return;
     }
 
-    flywithlua::panel::PanelDrawScope panelScope(isPanelGraphics() ? getXWindow() : nullptr);
-    if (isPanelGraphics() && !panelScope.active()) {
+    const bool windowUsesPanel = isPanelGraphics();
+    if (!syncFontTexture(windowUsesPanel)) {
+        if (windowUsesPanel) {
+            flywithlua::panel::disableForSession("Panel Graphics ImGui font texture creation failed");
+        }
+        return;
+    }
+
+    flywithlua::panel::PanelDrawScope panelScope(windowUsesPanel ? getXWindow() : nullptr);
+    if (windowUsesPanel && !panelScope.active()) {
         return;
     }
     updateMatrices();
     try {
         buildGUI();
-        showGUI();
+        showGUI(panelScope.active());
     } catch (const std::exception &e) {
         if (onError) {
             onError(e.what());
@@ -187,7 +225,7 @@ void ImGUIWindow::buildGUI() {
     ImGui::Render();
 }
 
-void ImGUIWindow::showGUI() {
+void ImGUIWindow::showGUI(bool panelFrame) {
     ImGui::SetCurrentContext(imGuiContext);
     auto &io = ImGui::GetIO();
 
@@ -196,7 +234,7 @@ void ImGUIWindow::showGUI() {
     // Avoid rendering when minimized, scale coordinates for retina displays (screen coordinates != framebuffer coordinates)
     drawData->ScaleClipRects(io.DisplayFramebufferScale);
 
-    if (panelRenderer) {
+    if (panelFrame) {
         showPanelGUI();
         return;
     }

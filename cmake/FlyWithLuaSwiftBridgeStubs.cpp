@@ -386,22 +386,25 @@ static int luaDrawString(lua_State* state) {
         fontName = lua_tolstring(state, 4, nullptr);
     }
 
-    if (flywithlua::panel::panelDrawing()) {
-        const int x = static_cast<int>(lua_tointeger(state, 1));
-        const int y = static_cast<int>(lua_tointeger(state, 2));
-        flywithlua_panel_draw_legacy_text(x, y, text, fontName, nullptr);
-        return 0;
-    }
-
+    const bool explicitColor = lua_gettop(state) >= 8 && lua_isnumber(state, 5) &&
+        lua_isnumber(state, 6) && lua_isnumber(state, 7) && lua_isnumber(state, 8);
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-    if (lua_gettop(state) >= 8 && lua_isnumber(state, 5) &&
-        lua_isnumber(state, 6) && lua_isnumber(state, 7) &&
-        lua_isnumber(state, 8)) {
+    if (explicitColor) {
         color[0] = static_cast<float>(lua_tonumber(state, 5));
         color[1] = static_cast<float>(lua_tonumber(state, 6));
         color[2] = static_cast<float>(lua_tonumber(state, 7));
         color[3] = static_cast<float>(lua_tonumber(state, 8));
-    } else {
+    }
+
+    if (flywithlua::panel::panelDrawing()) {
+        const int x = static_cast<int>(lua_tointeger(state, 1));
+        const int y = static_cast<int>(lua_tointeger(state, 2));
+        flywithlua_panel_draw_legacy_text(x, y, text, fontName,
+                                          explicitColor ? color : nullptr);
+        return 0;
+    }
+
+    if (!explicitColor) {
         glGetFloatv(GL_CURRENT_COLOR, color);
     }
 
@@ -545,6 +548,9 @@ extern "C" int flywithlua_draw_hidpi_text(int x,
 
     if (flywithlua_panel_draw_hidpi_text(x, y, text, logicalSize, family, weight) != 0) {
         return 1;
+    }
+    if (flywithlua::panel::panelDrawing()) {
+        return 0;
     }
 
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
