@@ -265,4 +265,13 @@ if (BUILD_PANEL_GRAPHICS_TESTS)
         "${CMAKE_SOURCE_DIR}/Graphics")
     target_compile_features(ImGuiPanelMeshTests PRIVATE cxx_std_17)
     add_test(NAME ImGuiPanelMeshTests COMMAND ImGuiPanelMeshTests)
+
+    add_executable(PanelGraphicsBackendTests
+        "${CMAKE_SOURCE_DIR}/../tests/native/PanelGraphicsBackendTests.cpp"
+        Graphics/PanelGraphicsBackend.cpp)
+    target_include_directories(PanelGraphicsBackendTests PRIVATE
+        "${CMAKE_SOURCE_DIR}/SDK/CHeaders/XPLM"
+        "${CMAKE_SOURCE_DIR}/Graphics")
+    target_compile_features(PanelGraphicsBackendTests PRIVATE cxx_std_17)
+    add_test(NAME PanelGraphicsBackendTests COMMAND PanelGraphicsBackendTests)
 endif ()

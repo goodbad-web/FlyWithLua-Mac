@@ -40,6 +40,7 @@
 		5E70B3189C96D62D17280307 /* logo.ps in Resources */ = {isa = PBXBuildFile; fileRef = 2C2AC492C1C34897CF83ADE8 /* logo.ps */; };
 		5F72C0BC4AB9C6DA3706CF72 /* glut32.dll in Resources */ = {isa = PBXBuildFile; fileRef = D3582AA66147595AFB160668 /* glut32.dll */; };
 		613F4651653D4B03598C3B6B /* usocket.c in Sources */ = {isa = PBXBuildFile; fileRef = CFB8356B8B1503A1B06A7641 /* usocket.c */; };
+		626C463AAD6EEF197AB87995 /* ImGuiPanelMesh.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 61F438F6B28DE500CB4869F3 /* ImGuiPanelMesh.cpp */; };
 		68283484F293AD585A38F7FF /* XPLM.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8FE27872FBEF8CEEE4B2A4F7 /* XPLM.framework */; };
 		690891A37838809E70B28153 /* luasocket.sln in Resources */ = {isa = PBXBuildFile; fileRef = 0114BF3700B3B7CE463F3AB0 /* luasocket.sln */; };
 		6A700433818028202E7A75CA /* mime.vcxproj.filters in Resources */ = {isa = PBXBuildFile; fileRef = B01C4E1FB76C23E4383BD5DB /* mime.vcxproj.filters */; };
@@ -128,21 +129,22 @@
 
 /* Begin PBXFileReference section */
 		009460B723EDA25D890F43FD /* Shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = Shaders.metal; sourceTree = "<group>"; };
-		0114BF3700B3B7CE463F3AB0 /* luasocket.sln */ = {isa = PBXFileReference; path = luasocket.sln; sourceTree = "<group>"; };
+		0114BF3700B3B7CE463F3AB0 /* luasocket.sln */ = {isa = PBXFileReference; lastKnownFileType = text; path = luasocket.sln; sourceTree = "<group>"; };
 		0119A742F671E6A2BA17AA54 /* ImGUIIntegration.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImGUIIntegration.h; sourceTree = "<group>"; };
-		02836389DEAE1E366CB3D947 /* Lua.props */ = {isa = PBXFileReference; path = Lua.props; sourceTree = "<group>"; };
+		02836389DEAE1E366CB3D947 /* Lua.props */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = Lua.props; sourceTree = "<group>"; };
 		029B59439F1DF6B68C050E6C /* pierror.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = pierror.h; sourceTree = "<group>"; };
-		03644D187E963F4FA4DE6490 /* README */ = {isa = PBXFileReference; path = README; sourceTree = "<group>"; };
+		03644D187E963F4FA4DE6490 /* README */ = {isa = PBXFileReference; lastKnownFileType = text; path = README; sourceTree = "<group>"; };
 		05E9C47048ED540143FACB4E /* XPWindowManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPWindowManager.swift; sourceTree = "<group>"; };
-		066DE22864165CB939A6074D /* README */ = {isa = PBXFileReference; path = README; sourceTree = "<group>"; };
+		066DE22864165CB939A6074D /* README */ = {isa = PBXFileReference; lastKnownFileType = text; path = README; sourceTree = "<group>"; };
 		079337C7859B4EDBEE53AB7C /* XPWidgets.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = XPWidgets.framework; sourceTree = "<group>"; };
-		080E366373F252BEDE360C15 /* TODO */ = {isa = PBXFileReference; path = TODO; sourceTree = "<group>"; };
-		096177CDA8624C66A8D2E428 /* exports.sym_mac */ = {isa = PBXFileReference; path = exports.sym_mac; sourceTree = "<group>"; };
+		080E366373F252BEDE360C15 /* TODO */ = {isa = PBXFileReference; lastKnownFileType = text; path = TODO; sourceTree = "<group>"; };
+		096177CDA8624C66A8D2E428 /* exports.sym_mac */ = {isa = PBXFileReference; lastKnownFileType = text; path = exports.sym_mac; sourceTree = "<group>"; };
 		0984868E3565291860669C7F /* imgui_lua_bindings.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = imgui_lua_bindings.cpp; sourceTree = "<group>"; };
-		0A73ECE7E24710FA30D14EDC /* fmodstudio.dll */ = {isa = PBXFileReference; path = fmodstudio.dll; sourceTree = "<group>"; };
+		0A73ECE7E24710FA30D14EDC /* fmodstudio.dll */ = {isa = PBXFileReference; lastKnownFileType = file; path = fmodstudio.dll; sourceTree = "<group>"; };
+		0AEFB0335B0874B13EF5B138 /* ImGuiPanelMesh.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImGuiPanelMesh.h; sourceTree = "<group>"; };
 		0C8EAE193E5EAC24431D8D22 /* auxiliar.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = auxiliar.h; sourceTree = "<group>"; };
 		0D2958D2DE8059608F40ECE8 /* hid.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = hid.c; sourceTree = "<group>"; };
-		0F5090177415BDE6B0889E04 /* LuaXml.cdr */ = {isa = PBXFileReference; path = LuaXml.cdr; sourceTree = "<group>"; };
+		0F5090177415BDE6B0889E04 /* LuaXml.cdr */ = {isa = PBXFileReference; lastKnownFileType = file; path = LuaXml.cdr; sourceTree = "<group>"; };
 		10DC15212670FCC8C51A8C6D /* efx-presets.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "efx-presets.h"; sourceTree = "<group>"; };
 		110D2A0C835564206EEE3830 /* XPLMDisplay.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMDisplay.h; sourceTree = "<group>"; };
 		13EED6CF489AFC67421B3976 /* FlyWithLua.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = FlyWithLua.cpp; sourceTree = "<group>"; };
@@ -153,9 +155,9 @@
 		18A745B0EB50F0BFE088492E /* buffer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = buffer.c; sourceTree = "<group>"; };
 		1A6CFBBB78C7E097397F014C /* config.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = config.hpp; sourceTree = "<group>"; };
 		1AB6B3EA2310FB78293D8912 /* LuaBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuaBridge.swift; sourceTree = "<group>"; };
-		1B1B763F05020FFF65F96C9A /* udp-zero-length-send */ = {isa = PBXFileReference; path = "udp-zero-length-send"; sourceTree = "<group>"; };
+		1B1B763F05020FFF65F96C9A /* udp-zero-length-send */ = {isa = PBXFileReference; lastKnownFileType = text; path = "udp-zero-length-send"; sourceTree = "<group>"; };
 		1B2BCBA1CB3074476174F71B /* imstb_truetype.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = imstb_truetype.h; sourceTree = "<group>"; };
-		1B301843EBD8D9C2211D4AB7 /* t2gt.qp */ = {isa = PBXFileReference; path = t2gt.qp; sourceTree = "<group>"; };
+		1B301843EBD8D9C2211D4AB7 /* t2gt.qp */ = {isa = PBXFileReference; lastKnownFileType = text; path = t2gt.qp; sourceTree = "<group>"; };
 		1B7F12DB11F32F79A1DFE8A3 /* FlyWithLua-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "FlyWithLua-Bridging-Header.h"; sourceTree = "<group>"; };
 		1CAFBFFFF6297BF3EC146632 /* XPLMDataAccess.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMDataAccess.h; sourceTree = "<group>"; };
 		1F302A0DDC0E8E0268276345 /* options.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = options.c; sourceTree = "<group>"; };
@@ -166,39 +168,39 @@
 		22C1527A7DD9C7F80DCDD407 /* unixdgram.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = unixdgram.h; sourceTree = "<group>"; };
 		22DC832DF3AEA7F50F32571A /* XPLMPlanes.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMPlanes.h; sourceTree = "<group>"; };
 		24C3454018F97ED588B6534D /* buffer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = buffer.h; sourceTree = "<group>"; };
-		261BD68AC6A7A10863AAFF43 /* fmod.dll */ = {isa = PBXFileReference; path = fmod.dll; sourceTree = "<group>"; };
+		261BD68AC6A7A10863AAFF43 /* fmod.dll */ = {isa = PBXFileReference; lastKnownFileType = file; path = fmod.dll; sourceTree = "<group>"; };
 		26BFADA132ABEB32D13043FA /* PluginConfigActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginConfigActor.swift; sourceTree = "<group>"; };
 		275139C7935840CBB983FA23 /* FLWIntegration.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = FLWIntegration.cpp; sourceTree = "<group>"; };
 		295F4BFCBB65187C5DEB99C7 /* unix.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = unix.h; sourceTree = "<group>"; };
 		2A031ACE38CE1608F2C845C4 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
-		2A5BF8842F2DD28E7A8AAAFE /* NEW */ = {isa = PBXFileReference; path = NEW; sourceTree = "<group>"; };
+		2A5BF8842F2DD28E7A8AAAFE /* NEW */ = {isa = PBXFileReference; lastKnownFileType = text; path = NEW; sourceTree = "<group>"; };
 		2AE76BB392D73B3ED79301AC /* io.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = io.h; sourceTree = "<group>"; };
-		2C2AC492C1C34897CF83ADE8 /* logo.ps */ = {isa = PBXFileReference; path = logo.ps; sourceTree = "<group>"; };
+		2C2AC492C1C34897CF83ADE8 /* logo.ps */ = {isa = PBXFileReference; lastKnownFileType = text; path = logo.ps; sourceTree = "<group>"; };
 		2D34410CCC7FFC61079A804E /* lua.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = lua.h; sourceTree = "<group>"; };
 		2F8FF75E509026527F6A0219 /* fmod4xpsystem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod4xpsystem.h; sourceTree = "<group>"; };
 		3250D129E0B2E62424BFA127 /* socket.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = socket.h; sourceTree = "<group>"; };
 		333659F17595EA9E423938EC /* fmod_studio_common.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod_studio_common.h; sourceTree = "<group>"; };
-		34524CDABBF24B6D5626E7B3 /* README */ = {isa = PBXFileReference; path = README; sourceTree = "<group>"; };
-		35A8F927925E670ECBA12462 /* makefile.dist */ = {isa = PBXFileReference; path = makefile.dist; sourceTree = "<group>"; };
+		34524CDABBF24B6D5626E7B3 /* README */ = {isa = PBXFileReference; lastKnownFileType = text; path = README; sourceTree = "<group>"; };
+		35A8F927925E670ECBA12462 /* makefile.dist */ = {isa = PBXFileReference; lastKnownFileType = text; path = makefile.dist; sourceTree = "<group>"; };
 		35AAE230FE202DE7FDCB48ED /* ThreeJFPSControllerCore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ThreeJFPSControllerCore.h; sourceTree = "<group>"; };
 		37FB35D45F511A8ADC8D72B5 /* XPSDKGateway.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPSDKGateway.swift; sourceTree = "<group>"; };
-		38BD114D4F1F868362C4C6BF /* glut64.dll */ = {isa = PBXFileReference; path = glut64.dll; sourceTree = "<group>"; };
+		38BD114D4F1F868362C4C6BF /* glut64.dll */ = {isa = PBXFileReference; lastKnownFileType = file; path = glut64.dll; sourceTree = "<group>"; };
 		39C0932F93018D6ECE2DF7FD /* XPLMProcessing.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMProcessing.h; sourceTree = "<group>"; };
 		3A2E6B6FD86D19DB3C9A1B5E /* fmod_studio.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = fmod_studio.hpp; sourceTree = "<group>"; };
 		3ABC9B99F950E8F9B7E18CDF /* fmod_codec.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod_codec.h; sourceTree = "<group>"; };
 		3B323C9378DA2BDCC70F6AB3 /* XPLMMenus.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMMenus.h; sourceTree = "<group>"; };
 		3CAC5ADDB1DD09C93D7B01EF /* lualib.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = lualib.h; sourceTree = "<group>"; };
-		3EAE6BEAF66AD2BA3EBC9C8A /* tcp-getoptions */ = {isa = PBXFileReference; path = "tcp-getoptions"; sourceTree = "<group>"; };
+		3EAE6BEAF66AD2BA3EBC9C8A /* tcp-getoptions */ = {isa = PBXFileReference; lastKnownFileType = text; path = "tcp-getoptions"; sourceTree = "<group>"; };
 		3F0F9A1C6F6DA6C4C020B28D /* stb_image.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = stb_image.h; sourceTree = "<group>"; };
 		419187399F458EAAF75FC25D /* imgui.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = imgui.h; sourceTree = "<group>"; };
 		41B6D8198C705FFC8A98F20A /* alext.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = alext.h; sourceTree = "<group>"; };
-		43B17C4F7A496FA19D7DFA66 /* myps2pdf */ = {isa = PBXFileReference; path = myps2pdf; sourceTree = "<group>"; };
-		44063E6CA5463F049E85DC72 /* makefile */ = {isa = PBXFileReference; path = makefile; sourceTree = "<group>"; };
-		45ABB7321B246A3E9F163EB2 /* x-plane-luajit.patch_debug_on */ = {isa = PBXFileReference; path = "x-plane-luajit.patch_debug_on"; sourceTree = "<group>"; };
+		43B17C4F7A496FA19D7DFA66 /* myps2pdf */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = myps2pdf; sourceTree = "<group>"; };
+		44063E6CA5463F049E85DC72 /* makefile */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.make; path = makefile; sourceTree = "<group>"; };
+		45ABB7321B246A3E9F163EB2 /* x-plane-luajit.patch_debug_on */ = {isa = PBXFileReference; lastKnownFileType = text; path = "x-plane-luajit.patch_debug_on"; sourceTree = "<group>"; };
 		4648F69E6FE82C8A00231F81 /* MetalTextureBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalTextureBridge.swift; sourceTree = "<group>"; };
 		476AB66A446B720426DF65E3 /* FlyWithLua.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = FlyWithLua.hpp; sourceTree = "<group>"; };
 		48C9484179F529457B0FA573 /* lua.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = lua.hpp; sourceTree = "<group>"; };
-		48D03589A19548BCAF158CCC /* socket.vcxproj.filters */ = {isa = PBXFileReference; path = socket.vcxproj.filters; sourceTree = "<group>"; };
+		48D03589A19548BCAF158CCC /* socket.vcxproj.filters */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = socket.vcxproj.filters; sourceTree = "<group>"; };
 		494FE09444EF862E67CC4545 /* parse_blocks.pl */ = {isa = PBXFileReference; lastKnownFileType = text.script.perl; path = parse_blocks.pl; sourceTree = "<group>"; };
 		4961004BB45C9E5947CA36BF /* FLWIntegration.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FLWIntegration.h; sourceTree = "<group>"; };
 		4B153DE98BB33ED2F6178C98 /* al.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = al.h; sourceTree = "<group>"; };
@@ -209,62 +211,63 @@
 		556CC81E18396B5C98BD63A0 /* fmod.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod.h; sourceTree = "<group>"; };
 		587C93717C99E801AB4CE88D /* input.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = input.bin; sourceTree = "<group>"; };
 		5AFD6D8FF97F10D718A134A4 /* LuaXML_lib.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = LuaXML_lib.c; sourceTree = "<group>"; };
-		5AFDD20F1F4B2EB016D03C07 /* query-string */ = {isa = PBXFileReference; path = "query-string"; sourceTree = "<group>"; };
-		5CAAEDE4E73372BCA937DAD7 /* makefile */ = {isa = PBXFileReference; path = makefile; sourceTree = "<group>"; };
+		5AFDD20F1F4B2EB016D03C07 /* query-string */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "query-string"; sourceTree = "<group>"; };
+		5CAAEDE4E73372BCA937DAD7 /* makefile */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.make; path = makefile; sourceTree = "<group>"; };
 		5EC4154ADACACFAED3BF323F /* udp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = udp.h; sourceTree = "<group>"; };
 		5ED176CDB42DB091D89AB948 /* timeout.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = timeout.h; sourceTree = "<group>"; };
 		600203352FB509E9DF9100DF /* XPLMNavigation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMNavigation.h; sourceTree = "<group>"; };
-		608CE694E6567BAF51B00735 /* XPLM_64.lib */ = {isa = PBXFileReference; path = XPLM_64.lib; sourceTree = "<group>"; };
+		608CE694E6567BAF51B00735 /* XPLM_64.lib */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = XPLM_64.lib; sourceTree = "<group>"; };
 		6101E7406517FD08F9A15E71 /* select.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = select.h; sourceTree = "<group>"; };
-		62A1EB43FEC959EF0C0B3792 /* macosx.cmd */ = {isa = PBXFileReference; path = macosx.cmd; sourceTree = "<group>"; };
+		61F438F6B28DE500CB4869F3 /* ImGuiPanelMesh.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ImGuiPanelMesh.cpp; sourceTree = "<group>"; };
+		62A1EB43FEC959EF0C0B3792 /* macosx.cmd */ = {isa = PBXFileReference; lastKnownFileType = text; path = macosx.cmd; sourceTree = "<group>"; };
 		62CA8009B37BA36E97446876 /* ThreeJFPSUIState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreeJFPSUIState.swift; sourceTree = "<group>"; };
-		640F52934B01A54787B86EEC /* mingw.cmd */ = {isa = PBXFileReference; path = mingw.cmd; sourceTree = "<group>"; };
+		640F52934B01A54787B86EEC /* mingw.cmd */ = {isa = PBXFileReference; lastKnownFileType = text; path = mingw.cmd; sourceTree = "<group>"; };
 		64EE10CBD1AFC5419C9034F9 /* unixdgram.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = unixdgram.c; sourceTree = "<group>"; };
-		6689BBB8B8E2DDA05583A157 /* lua05.ppt */ = {isa = PBXFileReference; path = lua05.ppt; sourceTree = "<group>"; };
-		66AD22C51DFF4C2BA43D0C37 /* cat */ = {isa = PBXFileReference; path = cat; sourceTree = "<group>"; };
-		6B21EB27E8FAB188EDBC5310 /* find-connect-limit */ = {isa = PBXFileReference; path = "find-connect-limit"; sourceTree = "<group>"; };
+		6689BBB8B8E2DDA05583A157 /* lua05.ppt */ = {isa = PBXFileReference; lastKnownFileType = file; path = lua05.ppt; sourceTree = "<group>"; };
+		66AD22C51DFF4C2BA43D0C37 /* cat */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = cat; sourceTree = "<group>"; };
+		6B21EB27E8FAB188EDBC5310 /* find-connect-limit */ = {isa = PBXFileReference; lastKnownFileType = text; path = "find-connect-limit"; sourceTree = "<group>"; };
 		6D823CA03D159FDD1ECFFC1F /* fmod.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = fmod.hpp; sourceTree = "<group>"; };
 		6DEB063CDCFC07C24315EB70 /* options.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = options.h; sourceTree = "<group>"; };
 		6F486F6917D86DC95EBD2D03 /* ThreeJFPSSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreeJFPSSettingsView.swift; sourceTree = "<group>"; };
 		6F910809C3E4A5A99D8B860C /* usocket.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = usocket.h; sourceTree = "<group>"; };
-		6FC83EE09BBDB4610C808797 /* udp-zero-length-send-recv */ = {isa = PBXFileReference; path = "udp-zero-length-send-recv"; sourceTree = "<group>"; };
+		6FC83EE09BBDB4610C808797 /* udp-zero-length-send-recv */ = {isa = PBXFileReference; lastKnownFileType = text; path = "udp-zero-length-send-recv"; sourceTree = "<group>"; };
 		715826C2FCFD31816EE3ACC9 /* .travis.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = .travis.yml; sourceTree = "<group>"; };
-		720685EF5A9390D46A983886 /* luasocket-scm-0.rockspec */ = {isa = PBXFileReference; path = "luasocket-scm-0.rockspec"; sourceTree = "<group>"; };
-		7768AF3ABA8B7243A1F91A57 /* .gitignore */ = {isa = PBXFileReference; path = .gitignore; sourceTree = "<group>"; };
-		784862E3D4B352F70CFF2201 /* OpenAL32.lib */ = {isa = PBXFileReference; path = OpenAL32.lib; sourceTree = "<group>"; };
+		720685EF5A9390D46A983886 /* luasocket-scm-0.rockspec */ = {isa = PBXFileReference; lastKnownFileType = text; path = "luasocket-scm-0.rockspec"; sourceTree = "<group>"; };
+		7768AF3ABA8B7243A1F91A57 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
+		784862E3D4B352F70CFF2201 /* OpenAL32.lib */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = OpenAL32.lib; sourceTree = "<group>"; };
 		7914AFC1E8AEE13AA9BD936B /* reference.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = reference.css; sourceTree = "<group>"; };
 		7AB1D93EC752F3FA00CAA9D9 /* readinifile.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = readinifile.cpp; sourceTree = "<group>"; };
 		7C4E2794EE0A1B728C91461B /* imgui.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = imgui.cpp; sourceTree = "<group>"; };
 		7C51B4D4730A18BB9EEB9DD6 /* select.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = select.c; sourceTree = "<group>"; };
 		7DC52B68097370F001630E4B /* inet.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = inet.h; sourceTree = "<group>"; };
 		7F74E122AE370799398EE7F5 /* XPLMGraphics.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMGraphics.h; sourceTree = "<group>"; };
-		80E72516261C0956BA67ECF6 /* LICENSE.TXT */ = {isa = PBXFileReference; path = LICENSE.TXT; sourceTree = "<group>"; };
+		80E72516261C0956BA67ECF6 /* LICENSE.TXT */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE.TXT; sourceTree = "<group>"; };
 		816E404CF2877EEEFFD84D42 /* HUDTextRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDTextRenderer.swift; sourceTree = "<group>"; };
 		832BD731A67E8972FD7F98C6 /* libfmodstudio.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libfmodstudio.dylib; sourceTree = "<group>"; };
 		843B98ABE9AE24CAD1280571 /* hidapi.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hidapi.h; sourceTree = "<group>"; };
-		84970585DCAFD8F77CE53075 /* README */ = {isa = PBXFileReference; path = README; sourceTree = "<group>"; };
+		84970585DCAFD8F77CE53075 /* README */ = {isa = PBXFileReference; lastKnownFileType = text; path = README; sourceTree = "<group>"; };
 		85AF41ACECE989F009BAE200 /* XPLMScenery.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMScenery.h; sourceTree = "<group>"; };
-		89BA172AC282B498429D69FB /* libfmodstudio.so.13.10 */ = {isa = PBXFileReference; path = libfmodstudio.so.13.10; sourceTree = "<group>"; };
+		89BA172AC282B498429D69FB /* libfmodstudio.so.13.10 */ = {isa = PBXFileReference; lastKnownFileType = file; path = libfmodstudio.so.13.10; sourceTree = "<group>"; };
 		8FCF7EFB3F2B2D4CF0F1EF43 /* mime.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mime.h; sourceTree = "<group>"; };
 		8FD4110B6BFDEC15070EBF11 /* luasocket.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = luasocket.h; sourceTree = "<group>"; };
 		8FE27872FBEF8CEEE4B2A4F7 /* XPLM.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = XPLM.framework; sourceTree = "<group>"; };
-		90D124C06614810AC1AB473D /* gt.b64 */ = {isa = PBXFileReference; path = gt.b64; sourceTree = "<group>"; };
+		90D124C06614810AC1AB473D /* gt.b64 */ = {isa = PBXFileReference; lastKnownFileType = text; path = gt.b64; sourceTree = "<group>"; };
 		93FFD3CBE07A32B761868E8A /* fmod4xpchannelgroup.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod4xpchannelgroup.h; sourceTree = "<group>"; };
-		948157E36BF494C9550BB5C4 /* request-uri */ = {isa = PBXFileReference; path = "request-uri"; sourceTree = "<group>"; };
+		948157E36BF494C9550BB5C4 /* request-uri */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "request-uri"; sourceTree = "<group>"; };
 		94AB6DD9FFD0BD6168D4DE17 /* PanelGraphicsLua.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = PanelGraphicsLua.cpp; sourceTree = "<group>"; };
 		984D3B070052AE2EE1D97715 /* XPLMUtilities+Swift.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XPLMUtilities+Swift.swift"; sourceTree = "<group>"; };
-		9A36A1368CA4396E26BE8810 /* x-plane-luajit.patch */ = {isa = PBXFileReference; path = "x-plane-luajit.patch"; sourceTree = "<group>"; };
-		9A9D3DBCDAE76B0999E7488C /* luasocket-3.0rc2-1.rockspec */ = {isa = PBXFileReference; path = "luasocket-3.0rc2-1.rockspec"; sourceTree = "<group>"; };
+		9A36A1368CA4396E26BE8810 /* x-plane-luajit.patch */ = {isa = PBXFileReference; lastKnownFileType = text; path = "x-plane-luajit.patch"; sourceTree = "<group>"; };
+		9A9D3DBCDAE76B0999E7488C /* luasocket-3.0rc2-1.rockspec */ = {isa = PBXFileReference; lastKnownFileType = text; path = "luasocket-3.0rc2-1.rockspec"; sourceTree = "<group>"; };
 		9B3D151F86A4584CC7594157 /* FlyWithLua.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FlyWithLua.h; sourceTree = "<group>"; };
 		9C70FC511FF27C8C45AF4CCA /* inet.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = inet.c; sourceTree = "<group>"; };
-		9D784F9F8E786B3798FBD235 /* ltn013.wiki */ = {isa = PBXFileReference; path = ltn013.wiki; sourceTree = "<group>"; };
-		9DD8FEE3544CBD9D6AC17202 /* .htaccess */ = {isa = PBXFileReference; path = .htaccess; sourceTree = "<group>"; };
-		9E408E5DBE5C2E5665D7D3C2 /* cat-index-html */ = {isa = PBXFileReference; path = "cat-index-html"; sourceTree = "<group>"; };
+		9D784F9F8E786B3798FBD235 /* ltn013.wiki */ = {isa = PBXFileReference; lastKnownFileType = text; path = ltn013.wiki; sourceTree = "<group>"; };
+		9DD8FEE3544CBD9D6AC17202 /* .htaccess */ = {isa = PBXFileReference; lastKnownFileType = text; path = .htaccess; sourceTree = "<group>"; };
+		9E408E5DBE5C2E5665D7D3C2 /* cat-index-html */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "cat-index-html"; sourceTree = "<group>"; };
 		9F41D6BB5DE8B0C75AE95CA9 /* timeout.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = timeout.c; sourceTree = "<group>"; };
 		9F6186B1A4FA8E21E154E9AB /* fwl_dataref.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fwl_dataref.h; sourceTree = "<group>"; };
 		A2626C56C2DBEDAC67A136EC /* ThreeJFPSControllerCore.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ThreeJFPSControllerCore.cpp; sourceTree = "<group>"; };
 		A4CD8AD913908C4C964D824A /* imgui_tables.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = imgui_tables.cpp; sourceTree = "<group>"; };
-		A57892933258D9F349D78ACD /* ltn012.wiki */ = {isa = PBXFileReference; path = ltn012.wiki; sourceTree = "<group>"; };
+		A57892933258D9F349D78ACD /* ltn012.wiki */ = {isa = PBXFileReference; lastKnownFileType = text; path = ltn012.wiki; sourceTree = "<group>"; };
 		A6D5695862E03C906DCDDCFE /* inireader.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = inireader.cpp; sourceTree = "<group>"; };
 		A877C6CA2A211D06A99438BB /* unixstream.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = unixstream.c; sourceTree = "<group>"; };
 		A8B1BA71F7533E22EB1AFDDB /* XPLMCamera.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMCamera.h; sourceTree = "<group>"; };
@@ -274,33 +277,33 @@
 		AB22B61D63824F7234F8A8DF /* FloatingWindow.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FloatingWindow.h; sourceTree = "<group>"; };
 		ABD108591BC2849A1394EF6C /* luaconf.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = luaconf.h; sourceTree = "<group>"; };
 		AEF1B408463458EF3F7671B8 /* glut.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = glut.h; sourceTree = "<group>"; };
-		B01C4E1FB76C23E4383BD5DB /* mime.vcxproj.filters */ = {isa = PBXFileReference; path = mime.vcxproj.filters; sourceTree = "<group>"; };
+		B01C4E1FB76C23E4383BD5DB /* mime.vcxproj.filters */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = mime.vcxproj.filters; sourceTree = "<group>"; };
 		B1B9F5C8E22B2E7E3DAE0F4D /* imconfig.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = imconfig.h; sourceTree = "<group>"; };
 		B2C156B8AD8804146E60F6E0 /* io.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = io.c; sourceTree = "<group>"; };
 		B2C71140BFFACCBEFF81DB63 /* MetalEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalEngine.swift; sourceTree = "<group>"; };
 		B32E1926E38F5A35141335FA /* XPUIState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPUIState.swift; sourceTree = "<group>"; };
-		B3A23E210154CF07B1413A55 /* glut64.lib */ = {isa = PBXFileReference; path = glut64.lib; sourceTree = "<group>"; };
+		B3A23E210154CF07B1413A55 /* glut64.lib */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = glut64.lib; sourceTree = "<group>"; };
 		B435006E8433F2F805DF848A /* fmod_studio.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod_studio.h; sourceTree = "<group>"; };
 		B69FEC5494B4D38403C74D6A /* XPLMInstance.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMInstance.h; sourceTree = "<group>"; };
 		B6AEE854BD70111915EFFDCF /* imgui_draw.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = imgui_draw.cpp; sourceTree = "<group>"; };
-		B825A21E01D7D6BD83B1E544 /* links */ = {isa = PBXFileReference; path = links; sourceTree = "<group>"; };
-		B97B4EC03DA79759E100020A /* XPWidgets_64.lib */ = {isa = PBXFileReference; path = XPWidgets_64.lib; sourceTree = "<group>"; };
+		B825A21E01D7D6BD83B1E544 /* links */ = {isa = PBXFileReference; lastKnownFileType = text; path = links; sourceTree = "<group>"; };
+		B97B4EC03DA79759E100020A /* XPWidgets_64.lib */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = XPWidgets_64.lib; sourceTree = "<group>"; };
 		BAAEA93EF566E90FD32609F4 /* test.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = test.xml; sourceTree = "<group>"; };
-		BB6368B50AD7CDB47DEB4F72 /* glut.def */ = {isa = PBXFileReference; path = glut.def; sourceTree = "<group>"; };
-		BC42F68AC2AD35954F786BB0 /* glut32.lib */ = {isa = PBXFileReference; path = glut32.lib; sourceTree = "<group>"; };
-		BDFC0A180FD16DECE2C0BD40 /* makefile */ = {isa = PBXFileReference; path = makefile; sourceTree = "<group>"; };
+		BB6368B50AD7CDB47DEB4F72 /* glut.def */ = {isa = PBXFileReference; lastKnownFileType = text; path = glut.def; sourceTree = "<group>"; };
+		BC42F68AC2AD35954F786BB0 /* glut32.lib */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = glut32.lib; sourceTree = "<group>"; };
+		BDFC0A180FD16DECE2C0BD40 /* makefile */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.make; path = makefile; sourceTree = "<group>"; };
 		BE4EAE3C8FA398C6E9C3B187 /* XPLMSound.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMSound.h; sourceTree = "<group>"; };
 		BEB4A54C6FAFC9BF5FA63C67 /* XPLMDefs.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMDefs.h; sourceTree = "<group>"; };
 		C01102A1F4AB89579ADFFF58 /* fmod_dsp_effects.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod_dsp_effects.h; sourceTree = "<group>"; };
 		C03E81FEA7A2B745C5380899 /* XPLMMap.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMMap.h; sourceTree = "<group>"; };
-		C193D58DB2CE4B5C18182EA4 /* mime.vcxproj */ = {isa = PBXFileReference; path = mime.vcxproj; sourceTree = "<group>"; };
+		C193D58DB2CE4B5C18182EA4 /* mime.vcxproj */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = mime.vcxproj; sourceTree = "<group>"; };
 		C1E527C0E098B72D8A1E191D /* XPWidgetDefs.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPWidgetDefs.h; sourceTree = "<group>"; };
-		C462867A9673DEEC89B62010 /* FlyWithLua-Mac.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "FlyWithLua-Mac.bundle"; sourceTree = BUILT_PRODUCTS_DIR; };
-		C715689A2A381DD040300640 /* redirect-loop */ = {isa = PBXFileReference; path = "redirect-loop"; sourceTree = "<group>"; };
-		C72AAE9D890579797B68A2AD /* .gitignore */ = {isa = PBXFileReference; path = .gitignore; sourceTree = "<group>"; };
+		C462867A9673DEEC89B62010 /* FlyWithLua.xpl */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FlyWithLua.xpl; sourceTree = BUILT_PRODUCTS_DIR; };
+		C715689A2A381DD040300640 /* redirect-loop */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "redirect-loop"; sourceTree = "<group>"; };
+		C72AAE9D890579797B68A2AD /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
 		C7530C8534ED6529A89A7E69 /* FmodIntegration.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FmodIntegration.h; sourceTree = "<group>"; };
 		C78799CCF786A0B41598AF5D /* mime.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = mime.c; sourceTree = "<group>"; };
-		C9069B51C0EC409A77E79143 /* FIX */ = {isa = PBXFileReference; path = FIX; sourceTree = "<group>"; };
+		C9069B51C0EC409A77E79143 /* FIX */ = {isa = PBXFileReference; lastKnownFileType = text; path = FIX; sourceTree = "<group>"; };
 		CBB319952F18273B022560C2 /* PanelGraphicsBackend.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PanelGraphicsBackend.h; sourceTree = "<group>"; };
 		CBD2527F8898059579FA50CC /* ThreeJFPSNative.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ThreeJFPSNative.h; sourceTree = "<group>"; };
 		CD0F625D77357D56F548322E /* efx.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = efx.h; sourceTree = "<group>"; };
@@ -315,36 +318,36 @@
 		D12D92F76CEA63C2064B3CC2 /* imgui_internal.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = imgui_internal.h; sourceTree = "<group>"; };
 		D21E43E57A0B08881FD77C8C /* fmod_common.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod_common.h; sourceTree = "<group>"; };
 		D2E1BF901F09F00253A37CD5 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = ../../../../System/Library/Frameworks/CoreFoundation.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		D3582AA66147595AFB160668 /* glut32.dll */ = {isa = PBXFileReference; path = glut32.dll; sourceTree = "<group>"; };
+		D3582AA66147595AFB160668 /* glut32.dll */ = {isa = PBXFileReference; lastKnownFileType = file; path = glut32.dll; sourceTree = "<group>"; };
 		D43DCC04EAEBA7CB263A73A9 /* XSBComDefs.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XSBComDefs.h; sourceTree = "<group>"; };
 		D52DDBC2CB50A48802BD7FE1 /* except.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = except.c; sourceTree = "<group>"; };
 		D5B449E4FEF06F064229AB62 /* generate_imgui_bindings.pl */ = {isa = PBXFileReference; lastKnownFileType = text.script.perl; path = generate_imgui_bindings.pl; sourceTree = "<group>"; };
 		D627D97D614D3F6E2E0B5385 /* alc.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = alc.h; sourceTree = "<group>"; };
 		D637A1A28366C78CE227E7EC /* fwl_customdataref.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fwl_customdataref.h; sourceTree = "<group>"; };
-		D6B02FA86B20943D67425302 /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
+		D6B02FA86B20943D67425302 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		DB8616C83CB745E814E2C20A /* AsyncScriptManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncScriptManager.swift; sourceTree = "<group>"; };
 		DC44511618F4E3E61D688786 /* fmod4xpdefaultbus.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod4xpdefaultbus.h; sourceTree = "<group>"; };
 		DE76C8915345EC3A0A2FF1E6 /* ThreeJFPSNative.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ThreeJFPSNative.cpp; sourceTree = "<group>"; };
-		DEB43BD8C371F4003FB73139 /* ltn012.tex */ = {isa = PBXFileReference; path = ltn012.tex; sourceTree = "<group>"; };
-		DEF6BF30A9D5C9E1B26EF769 /* fix_lua_tointeger.patch */ = {isa = PBXFileReference; path = fix_lua_tointeger.patch; sourceTree = "<group>"; };
+		DEB43BD8C371F4003FB73139 /* ltn012.tex */ = {isa = PBXFileReference; lastKnownFileType = text; path = ltn012.tex; sourceTree = "<group>"; };
+		DEF6BF30A9D5C9E1B26EF769 /* fix_lua_tointeger.patch */ = {isa = PBXFileReference; lastKnownFileType = text; path = fix_lua_tointeger.patch; sourceTree = "<group>"; };
 		E125F1B6EF95B765BA11A16A /* FloatingWindow.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = FloatingWindow.cpp; sourceTree = "<group>"; };
-		E1F74B30D190B4FB233DECAA /* WISH */ = {isa = PBXFileReference; path = WISH; sourceTree = "<group>"; };
+		E1F74B30D190B4FB233DECAA /* WISH */ = {isa = PBXFileReference; lastKnownFileType = text; path = WISH; sourceTree = "<group>"; };
 		E2039A17D196BB868465F2A0 /* tcp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = tcp.h; sourceTree = "<group>"; };
 		E2288AB8CA882FF33A1F58A2 /* DataRef.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataRef.swift; sourceTree = "<group>"; };
 		E522AAF59D9DD530D6C9B678 /* inireader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = inireader.h; sourceTree = "<group>"; };
-		E80132EA46DCE49BC076B863 /* win32.cmd */ = {isa = PBXFileReference; path = win32.cmd; sourceTree = "<group>"; };
-		E840B49D039070E10EB91904 /* env */ = {isa = PBXFileReference; path = env; sourceTree = "<group>"; };
+		E80132EA46DCE49BC076B863 /* win32.cmd */ = {isa = PBXFileReference; lastKnownFileType = text; path = win32.cmd; sourceTree = "<group>"; };
+		E840B49D039070E10EB91904 /* env */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = env; sourceTree = "<group>"; };
 		E890C1B7DF9FFCAE87D9BC96 /* luasocket.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = luasocket.c; sourceTree = "<group>"; };
 		E90AAA0DB27D85DCE710A627 /* luajit.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = luajit.h; sourceTree = "<group>"; };
 		E9E1E4961EACEE4A28BD8CBF /* XPLMPlugin.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMPlugin.h; sourceTree = "<group>"; };
-		ED350C3B5E87CFFB296F8DB5 /* .htpasswd */ = {isa = PBXFileReference; path = .htpasswd; sourceTree = "<group>"; };
+		ED350C3B5E87CFFB296F8DB5 /* .htpasswd */ = {isa = PBXFileReference; lastKnownFileType = text; path = .htpasswd; sourceTree = "<group>"; };
 		EF17711B3D765CC22E25B1BD /* lauxlib.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = lauxlib.h; sourceTree = "<group>"; };
-		EF746C04CCBA289B9503F9E1 /* socket.vcxproj */ = {isa = PBXFileReference; path = socket.vcxproj; sourceTree = "<group>"; };
-		F0A7E23F2658B0CFA39C76C8 /* libfmod.so.13.10 */ = {isa = PBXFileReference; path = libfmod.so.13.10; sourceTree = "<group>"; };
+		EF746C04CCBA289B9503F9E1 /* socket.vcxproj */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = socket.vcxproj; sourceTree = "<group>"; };
+		F0A7E23F2658B0CFA39C76C8 /* libfmod.so.13.10 */ = {isa = PBXFileReference; lastKnownFileType = file; path = libfmod.so.13.10; sourceTree = "<group>"; };
 		F1153EBD40B8A47DCE799686 /* gem.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = gem.c; sourceTree = "<group>"; };
 		F13260C0B23D2D3E8EA587AA /* efx-creative.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "efx-creative.h"; sourceTree = "<group>"; };
 		F2F0007BB4A39215377F2B14 /* libfmod.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libfmod.dylib; sourceTree = "<group>"; };
-		F4C3AAF9A56314DF5C69DA05 /* linux.cmd */ = {isa = PBXFileReference; path = linux.cmd; sourceTree = "<group>"; };
+		F4C3AAF9A56314DF5C69DA05 /* linux.cmd */ = {isa = PBXFileReference; lastKnownFileType = text; path = linux.cmd; sourceTree = "<group>"; };
 		F4C41D7BADCB66432836D3CA /* XPStandardWidgets.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPStandardWidgets.h; sourceTree = "<group>"; };
 		F4C56D50523B7721788A90DA /* PanelGraphicsLua.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PanelGraphicsLua.h; sourceTree = "<group>"; };
 		F50641A47BC16514B5D4C9E3 /* imgui_demo.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = imgui_demo.cpp; sourceTree = "<group>"; };
@@ -492,7 +495,7 @@
 		379ABBEA8C8B02005CE5477A /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C462867A9673DEEC89B62010 /* FlyWithLua-Mac.bundle */,
+				C462867A9673DEEC89B62010 /* FlyWithLua.xpl */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -712,6 +715,8 @@
 				4961004BB45C9E5947CA36BF /* FLWIntegration.h */,
 				16B140E14A92A9E3218BF650 /* ImGUIIntegration.cpp */,
 				0119A742F671E6A2BA17AA54 /* ImGUIIntegration.h */,
+				61F438F6B28DE500CB4869F3 /* ImGuiPanelMesh.cpp */,
+				0AEFB0335B0874B13EF5B138 /* ImGuiPanelMesh.h */,
 				3F0F9A1C6F6DA6C4C020B28D /* stb_image.h */,
 			);
 			path = FloatingWindows;
@@ -1020,7 +1025,7 @@
 			packageProductDependencies = (
 			);
 			productName = "FlyWithLua-Mac";
-			productReference = C462867A9673DEEC89B62010 /* FlyWithLua-Mac.bundle */;
+			productReference = C462867A9673DEEC89B62010 /* FlyWithLua.xpl */;
 			productType = "com.apple.product-type.bundle";
 		};
 /* End PBXNativeTarget section */
@@ -1031,8 +1036,6 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = 5D4C7429133B84E2D0E2EF23 /* Build configuration list for PBXProject "FlyWithLua-Mac" */;
 			developmentRegion = en;
@@ -1143,6 +1146,7 @@
 				58D9E2BFF1BA20420C97388E /* FmodIntegration.cpp in Sources */,
 				1C9A7DD3829AE0FB19B2D75D /* HUDTextRenderer.swift in Sources */,
 				151A11D83EBD3004078DA2FF /* ImGUIIntegration.cpp in Sources */,
+				626C463AAD6EEF197AB87995 /* ImGuiPanelMesh.cpp in Sources */,
 				A4194B0D7A4D94D145042E74 /* LuaBridge.swift in Sources */,
 				E5AF268FB7924ECA0508952F /* LuaXML_lib.c in Sources */,
 				7F56B0FBCC8BBFCF1F39FCBB /* MainView.swift in Sources */,
@@ -1258,9 +1262,13 @@
 		0D162E4CC22E33F455E7E6A4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "arm64 x86_64";
+				ARCHS = (
+					arm64,
+					x86_64,
+				);
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				COMBINE_HIDPI_IMAGES = YES;
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = 76Q8Z9XK4F;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
 					"APL=1",
@@ -1296,7 +1304,7 @@
 					lib/LuaJIT/lib,
 				);
 				MACH_O_TYPE = mh_bundle;
-				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
 				OTHER_CFLAGS = (
 					"$(inherited)",
 					"-Wno-deprecated-declarations",
@@ -1343,10 +1351,14 @@
 		7A25CDFF8AFA3570DE34AD22 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "arm64 x86_64";
+				ARCHS = (
+					arm64,
+					x86_64,
+				);
 				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = 76Q8Z9XK4F;
 				GCC_OPTIMIZATION_LEVEL = 3;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -1383,7 +1395,7 @@
 					lib/LuaJIT/lib,
 				);
 				MACH_O_TYPE = mh_bundle;
-				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
 				OTHER_CFLAGS = (
 					"$(inherited)",
 					"-Wno-deprecated-declarations",

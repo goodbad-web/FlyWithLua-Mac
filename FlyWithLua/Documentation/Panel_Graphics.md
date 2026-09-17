@@ -4,13 +4,16 @@
 
 FlyWithLua-Mac exposes a small explicit Panel Graphics API on macOS when the
 running X-Plane provides the complete required SDK surface. The API uses X-Plane panel
-coordinates: `x` increases to the right and `y` increases upward.
+coordinates: `x` increases to the right and `y` increases upward. Mesh vertices
+and scissors are converted to the SDK's top-left mesh coordinate convention at
+the backend boundary; texture UV orientation is unchanged.
 
-For X-Plane 12.4.4 and later, Panel Graphics is the required backend for
-Dear ImGui floating windows. Set `DrawBackend = panel` in `fwl_prefs.ini`.
-An ImGui window is not silently recreated as an OpenGL window when Panel
-Graphics is unavailable; creation fails and the diagnostic log reports the
-missing capability.
+`DrawBackend = auto` selects Panel Graphics only when `primitives`, `text`,
+`texture`, and `mesh` are all available. `DrawBackend = panel` requests the
+same backend but safely falls back to OpenGL when it cannot be used.
+`DrawBackend = opengl` keeps the legacy OpenGL path. Existing floating windows
+preserve their geometry, visibility, pop-out state, and VR state when the
+backend is recreated at a flight-loop boundary.
 
 Use `do_every_panel_draw` for Panel Graphics code:
 
@@ -44,11 +47,15 @@ that script in memory until the next reload; unrelated scripts continue.
 
 Legacy `gl*` functions remain available. They retain their existing names and
 arguments and use the existing OpenGL path, or the compatibility Panel path
-for bundled Panel scripts. Do not mix `glBegin/glEnd` with `panel_begin/panel_end`.
+for bundled Panel scripts. The bundled-script manifest keeps that adapter
+separate from user `do_every_panel_draw` callbacks, which must use `panel_*`.
+Do not mix `glBegin/glEnd` with `panel_begin/panel_end`.
 
-`panel_capabilities()` returns `primitives`, `text`, `texture`, `mesh`, and
-`version`. Panel textures are invalidated during script reload and must not be
-used after `panel_destroy_texture`.
+`panel_capabilities()` returns `available`, `primitives`, `text`, `texture`,
+`mesh`, and `version`. Partial raw capability information is reported, but a
+Panel window is created only when the complete set is usable. Panel textures
+are owned by the creating script, invalidated during script quarantine or
+reload, and must not be used after `panel_destroy_texture`.
 
 ImGui builders are cached after the first successful frame. The builder is
 rerun when input, geometry, an owned `EveryFrame`/`Often`/`Sometimes` callback,
@@ -69,13 +76,15 @@ returns `builder_runs`, `mesh_rebuilds`, and `cached_draws` counters.
 ## 日本語
 
 macOS では、実行中の X-Plane が必要な SDK symbol を提供している場合に、
-明示的な Panel Graphics API を利用できます。座標は X-Plane の panel 座標で、
-`x` は右方向、`y` は上方向です。
+明示的な Panel Graphics API を利用できます。公開座標は X-Plane の panel 座標で、
+`x` は右方向、`y` は上方向です。mesh の頂点と scissor は backend 境界で
+SDK の左上原点へ変換し、texture の UV 向きは変更しません。
 
-X-Plane 12.4.4 以降の Dear ImGui Floating Window は Panel Graphics を必須と
-します。`fwl_prefs.ini` では `DrawBackend = panel` を指定してください。
-必要な能力が不足している場合に OpenGL へ自動降格せず、ウィンドウ作成を失敗
-させ、診断ログに理由を記録します。
+`DrawBackend = auto`（既定値）は `primitives`、`text`、`texture`、`mesh` の
+全能力が揃った場合だけ Panel Graphics を選択します。`panel` は Panel を
+要求しますが利用不能時は安全に OpenGL へフォールバックし、`opengl` は既存の
+OpenGL 経路だけを使用します。backend の再生成は flight loop 境界で行い、
+geometry、visibility、pop-out、VR 状態を保持します。
 
 Panel Graphics 用のコードは `do_every_panel_draw` に登録してください。
 `panel_*` API は OpenGL に暗黙フォールバックしません。利用できない場合は
@@ -96,7 +105,9 @@ local stats = float_wnd_get_imgui_stats(my_window)
 ```
 
 既存の `gl*` API は互換性のため維持されます。通常の `do_every_draw` と既存の
-OpenGL Floating Window は従来の経路を使用します。`glBegin/glEnd` と
+OpenGL Floating Window は従来の経路を使用します。同梱スクリプトの manifest による
+互換 adapter と、ユーザーの `do_every_panel_draw`（`panel_*` 専用）は分離されます。
+`glBegin/glEnd` と
 `panel_begin/panel_end` を同じ描画処理で混在させないでください。
 
 ## Callback scope compatibility

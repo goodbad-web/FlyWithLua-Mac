@@ -92,10 +92,7 @@ void FloatingWindow::createWindow(bool usePanelGraphics) {
     params.layer = xplm_WindowLayerFloatingWindows;
 
     params.decorateAsFloatingWindow = decoration;
-    const bool requestedPanel = usePanelGraphics;
-    if (requestedPanel && !flywithlua::panel::panelReady()) {
-        throw std::runtime_error("Panel Graphics is unavailable; ImGui windows require the complete Panel API");
-    }
+    const bool requestedPanel = usePanelGraphics && flywithlua::panel::panelReady();
     panelGraphics = requestedPanel;
     if (requestedPanel) {
         flywithlua::panel::configurePanelWindow(params);
@@ -108,12 +105,17 @@ void FloatingWindow::createWindow(bool usePanelGraphics) {
     if (!window) {
         if (requestedPanel) {
             flywithlua::panel::disableForSession("Panel Graphics floating window creation failed");
+            flywithlua::panel::configureOpenGLWindow(params);
+            panelGraphics = false;
+            window = XPLMCreateWindowEx(&params);
         }
-        throw std::runtime_error("Couldn't create window");
+        if (!window) {
+            throw std::runtime_error("Couldn't create window");
+        }
     }
 
     if (panelGraphics) {
-        flywithlua::panel::registerWindow(window);
+        flywithlua::panel::registerWindow(window, ownerScript);
     }
 
 }

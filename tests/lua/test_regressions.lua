@@ -739,6 +739,82 @@ local function test_jjjlib_patch_safety()
 	assert(unchanged_read == "OTHER = 1\n")
 end
 
+local function test_panel_api_contract()
+	local env = new_environment()
+	local callback_source
+	local calls = {}
+	local texture = { id = 1 }
+	env.panel_is_available = function() return true end
+	env.panel_capabilities = function()
+		return {available = true, primitives = true, text = true, texture = true, mesh = true}
+	end
+	env.panel_set_color = function(...) calls[#calls + 1] = {"color", ...}; return true end
+	env.panel_set_line_width = function(width) calls[#calls + 1] = {"line", width}; return true end
+	env.panel_begin = function(mode) calls[#calls + 1] = {"begin", mode}; return true end
+	env.panel_vertex = function(x, y) calls[#calls + 1] = {"vertex", x, y}; return true end
+	env.panel_end = function() calls[#calls + 1] = {"end"}; return true end
+	env.panel_draw_rect = function(left, bottom, right, top)
+		calls[#calls + 1] = {"rect", left, bottom, right, top}
+		return true
+	end
+	env.panel_draw_text = function(x, y, text, font, size)
+		calls[#calls + 1] = {"text", x, y, text, font, size}
+		return true
+	end
+	env.panel_measure_text = function() return 42 end
+	env.panel_load_texture = function() return texture end
+	env.panel_draw_texture = function(value, left, bottom, right, top)
+		assert(value == texture)
+		calls[#calls + 1] = {"texture", left, bottom, right, top}
+		return true
+	end
+	env.panel_draw_mesh = function(vertices, indices, value)
+		assert(value == texture)
+		assert(vertices[1].y == 20 and vertices[2].y == 20 and vertices[3].y == 40)
+		assert(indices[1] == 1 and indices[3] == 3)
+		calls[#calls + 1] = {"mesh"}
+		return true
+	end
+	env.panel_destroy_texture = function(value) assert(value == texture); return true end
+	env.do_every_panel_draw = function(source) callback_source = source end
+
+	local script_path = tmp .. "/panel_api_contract.lua"
+	local file = assert(io.open(script_path, "w"))
+	file:write([[
+function draw_panel()
+    assert(panel_is_available())
+    local capabilities = panel_capabilities()
+    assert(capabilities.available and capabilities.mesh)
+    panel_set_color(1, 0, 0, 1)
+    panel_set_line_width(2)
+    assert(panel_begin("triangles"))
+    panel_vertex(10, 20)
+    panel_vertex(30, 20)
+    panel_vertex(10, 40)
+    assert(panel_end())
+    assert(panel_draw_rect(10, 20, 30, 40))
+    assert(panel_draw_text(12, 22, "text", "sf_pro_text", 14))
+    assert(panel_measure_text("text", "sf_pro_text", 14) == 42)
+    local texture = assert(panel_load_texture("texture.png"))
+    assert(panel_draw_texture(texture, 10, 20, 30, 40))
+    assert(panel_draw_mesh({
+        {x = 10, y = 20, u = 0, v = 1},
+        {x = 30, y = 20, u = 1, v = 1},
+        {x = 10, y = 40, u = 0, v = 0},
+    }, {1, 2, 3}, texture))
+    assert(panel_destroy_texture(texture))
+end
+do_every_panel_draw("draw_panel()")
+]])
+	file:close()
+	load_in_environment(script_path, env)
+	assert(callback_source == "draw_panel()")
+	local callback = assert(loadstring(callback_source))
+	setfenv(callback, env)
+	callback()
+	assert(#calls == 11, "unexpected panel call count: " .. tostring(#calls))
+end
+
 test_bravo_dial()
 test_b58_defaults()
 test_landing_rate()
@@ -748,5 +824,6 @@ test_hud_g1000()
 test_sma()
 test_luaxml_open_failure()
 test_jjjlib_patch_safety()
+test_panel_api_contract()
 
 print("Lua regression tests passed.")

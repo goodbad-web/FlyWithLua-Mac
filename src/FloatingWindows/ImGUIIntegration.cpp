@@ -214,7 +214,8 @@ void ImGUIWindow::onDraw() {
 
     const bool windowUsesPanel = isPanelGraphics();
     OpenGLDrawStateScope graphicsScope(!windowUsesPanel);
-    flywithlua::panel::PanelDrawScope panelScope(windowUsesPanel ? getXWindow() : nullptr);
+    flywithlua::panel::PanelDrawScope panelScope(windowUsesPanel ? getXWindow() : nullptr,
+                                                 ownerScriptId());
     if (windowUsesPanel && !panelScope.active()) {
         return;
     }
@@ -409,7 +410,8 @@ void ImGUIWindow::showPanelGUI() {
     mesh.vertices = panelMesh.vertices.data();
     mesh.index_count = static_cast<int>(panelMesh.indices.size());
     mesh.indices = panelMesh.indices.data();
-    if (!flywithlua::panel::drawCalls(mesh, panelMesh.drawCalls)) {
+    if (!flywithlua::panel::drawCalls(mesh, panelMesh.drawCalls,
+                                      flywithlua::panel::MeshCoordinateSpace::NativeTopLeft)) {
         flywithlua::panel::disableForSession("Panel Graphics ImGui draw failed");
     }
 }

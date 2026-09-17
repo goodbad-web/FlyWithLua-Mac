@@ -5,6 +5,7 @@
 #include <XPLMPanelGraphics.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -34,6 +35,11 @@ enum class PrimitiveSource {
     Panel,
 };
 
+enum class MeshCoordinateSpace {
+    PublicYUp,
+    NativeTopLeft,
+};
+
 enum Capability : std::uint32_t {
     CapabilityNone = 0,
     CapabilityPrimitives = 1u << 0,
@@ -47,6 +53,8 @@ constexpr std::uint32_t kRequiredCapabilityMask =
 
 struct DrawCall {
     void* texture = nullptr;
+    // Public API order is {left, bottom, right, top}; the backend converts
+    // this to XPLMDrawCall_t's top-left order for PublicYUp meshes.
     float scissors[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     int indexOffset = 0;
     int elementCount = 0;
@@ -66,18 +74,22 @@ std::uint32_t capabilities();
 bool hasCapability(Capability capability);
 bool hasAllCapabilities(std::uint32_t capabilityMask);
 void disableForSession(const char* reason);
+std::uint64_t sessionGeneration();
 
-void registerWindow(XPLMWindowID window);
+void registerWindow(XPLMWindowID window,
+                    std::uint64_t ownerScriptId = 0);
 void unregisterWindow(XPLMWindowID window);
 
 void configurePanelWindow(XPLMCreateWindow_t& params);
 void configureOpenGLWindow(XPLMCreateWindow_t& params);
-bool beginPanelWindow(XPLMWindowID window);
+bool beginPanelWindow(XPLMWindowID window,
+                      std::uint64_t ownerScriptId = 0);
 void endPanelWindow();
 
 class PanelDrawScope {
 public:
-    explicit PanelDrawScope(XPLMWindowID window);
+    explicit PanelDrawScope(XPLMWindowID window,
+                            std::uint64_t ownerScriptId = 0);
     ~PanelDrawScope();
 
     PanelDrawScope(const PanelDrawScope&) = delete;
@@ -86,16 +98,25 @@ public:
     bool active() const;
 
 private:
+    struct StateSnapshot;
+    std::unique_ptr<StateSnapshot> snapshot_;
     bool previousLuaDrawingState_ = true;
+    std::uint64_t ownerScriptId_ = 0;
     bool active_ = false;
 };
 
 void setColor(float red, float green, float blue, float alpha);
 std::uint32_t currentColor();
 void setLineWidth(float width);
-bool beginPrimitive(LegacyPrimitiveMode mode, PrimitiveSource source);
-bool vertex(float x, float y, PrimitiveSource source);
-bool endPrimitive(PrimitiveSource source);
+bool beginPrimitive(LegacyPrimitiveMode mode,
+                    PrimitiveSource source,
+                    std::uint64_t ownerScriptId = 0);
+bool vertex(float x,
+            float y,
+            PrimitiveSource source,
+            std::uint64_t ownerScriptId = 0);
+bool endPrimitive(PrimitiveSource source,
+                  std::uint64_t ownerScriptId = 0);
 void drawFilledRect(float x1, float y1, float x2, float y2);
 
 bool drawText(float x,
@@ -132,13 +153,36 @@ double measureLegacyText(const char* text, const char* fontName);
 
 void* createTexture(const unsigned char* rgbaImage, int width, int height);
 void destroyTexture(void* texture);
-bool drawCalls(const XPLMMesh_t& mesh, const std::vector<DrawCall>& calls);
-bool drawCalls(const XPLMMesh_t& mesh, const DrawCall& call);
+bool drawCalls(const XPLMMesh_t& mesh,
+               const std::vector<DrawCall>& calls,
+               MeshCoordinateSpace coordinateSpace = MeshCoordinateSpace::PublicYUp);
+bool drawCalls(const XPLMMesh_t& mesh,
+               const DrawCall& call,
+               MeshCoordinateSpace coordinateSpace = MeshCoordinateSpace::PublicYUp);
 
 // These buffers are valid only during the active Panel Graphics callback.
 // They are owned by the backend so Lua mesh helpers can reuse their capacity.
 std::vector<float>& meshVertexScratch();
 std::vector<std::uint16_t>& meshIndexScratch();
+
+namespace testing {
+
+/** Test-only recorder used by the native Panel Graphics state tests. */
+struct Recorder {
+    int polygonCalls = 0;
+    int lineCalls = 0;
+    int drawCallBatches = 0;
+    float lastLineWidth = 0.0f;
+    std::vector<XPLMVertex_t> lastVertices;
+    std::vector<float> lastMeshVertices;
+    float lastScissors[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+};
+
+void resetForTesting(std::uint32_t capabilityMask, Recorder* recorder,
+                     int windowWidth = 640, int windowHeight = 480);
+std::uint64_t windowGenerationForTesting(XPLMWindowID window);
+
+} // namespace testing
 
 } // namespace flywithlua::panel
 

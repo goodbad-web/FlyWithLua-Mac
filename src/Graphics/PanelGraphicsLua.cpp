@@ -19,12 +19,16 @@ namespace flywithlua::panel {
 namespace {
 
 constexpr const char* kTextureMetatable = "FlyWithLua.PanelTexture";
+constexpr std::uint32_t kPanelBackendIdentity = 0x50414e4cu;
 
 struct PanelTextureUserdata {
     void* texture = nullptr;
     LuaScriptId ownerScriptId = kSystemLuaScriptId;
     std::uint64_t generation = 0;
+    std::uint32_t backend = kPanelBackendIdentity;
+    std::uint64_t backendGeneration = 0;
     bool destroyed = false;
+    bool stale = false;
 };
 
 std::unordered_set<PanelTextureUserdata*> gTextures;
@@ -44,6 +48,10 @@ void pushFailure(lua_State* state, const char* functionName, const std::string& 
 }
 
 bool requireDrawing(lua_State* state, const char* functionName) {
+    if (!panelAvailable()) {
+        pushFalse(state);
+        return false;
+    }
     if (panelDrawing() && flywithlua::IsLuaPanelApiAllowed()) {
         return true;
     }
@@ -58,7 +66,9 @@ PanelTextureUserdata* checkTexture(lua_State* state, int index, const char* func
     auto* texture = static_cast<PanelTextureUserdata*>(
         luaL_testudata(state, index, kTextureMetatable));
     if (texture == nullptr || texture->destroyed || texture->texture == nullptr ||
-        texture->generation == 0) {
+        texture->generation == 0 || texture->stale ||
+        texture->backend != kPanelBackendIdentity ||
+        texture->backendGeneration != sessionGeneration()) {
         return nullptr;
     }
     if (texture->ownerScriptId != kSystemLuaScriptId &&
@@ -97,6 +107,9 @@ int panelCapabilities(lua_State* state) {
     lua_newtable(state);
     lua_pushinteger(state, 1);
     lua_setfield(state, -2, "version");
+
+    lua_pushboolean(state, panelAvailable() ? 1 : 0);
+    lua_setfield(state, -2, "available");
 
     lua_pushboolean(state, hasCapability(CapabilityPrimitives) ? 1 : 0);
     lua_setfield(state, -2, "primitives");
@@ -160,7 +173,8 @@ int panelBegin(lua_State* state) {
         pushFailure(state, "panel_begin", "unknown primitive mode");
         return 1;
     }
-    lua_pushboolean(state, beginPrimitive(mode, PrimitiveSource::Panel) ? 1 : 0);
+    const LuaScriptId ownerScriptId = flywithlua::CurrentLuaScriptId();
+    lua_pushboolean(state, beginPrimitive(mode, PrimitiveSource::Panel, ownerScriptId) ? 1 : 0);
     if (!lua_toboolean(state, -1)) {
         flywithlua::ReportLuaScriptError(flywithlua::CurrentLuaScriptId(),
                                          "panel_begin", "cannot mix panel and legacy primitives");
@@ -175,9 +189,10 @@ int panelVertex(lua_State* state) {
         pushFailure(state, "panel_vertex", "expected two finite coordinates");
         return 1;
     }
+    const LuaScriptId ownerScriptId = flywithlua::CurrentLuaScriptId();
     lua_pushboolean(state, vertex(static_cast<float>(lua_tonumber(state, 1)),
                                   static_cast<float>(lua_tonumber(state, 2)),
-                                  PrimitiveSource::Panel) ? 1 : 0);
+                                  PrimitiveSource::Panel, ownerScriptId) ? 1 : 0);
     if (!lua_toboolean(state, -1)) {
         flywithlua::ReportLuaScriptError(flywithlua::CurrentLuaScriptId(),
                                          "panel_vertex", "cannot mix panel and legacy primitives");
@@ -191,7 +206,8 @@ int panelEnd(lua_State* state) {
         pushFailure(state, "panel_end", "primitive capability is unavailable");
         return 1;
     }
-    lua_pushboolean(state, endPrimitive(PrimitiveSource::Panel) ? 1 : 0);
+    lua_pushboolean(state, endPrimitive(PrimitiveSource::Panel,
+                                        flywithlua::CurrentLuaScriptId()) ? 1 : 0);
     if (!lua_toboolean(state, -1)) {
         flywithlua::ReportLuaScriptError(flywithlua::CurrentLuaScriptId(),
                                          "panel_end", "panel primitive is not active");
@@ -284,7 +300,8 @@ int panelLoadTexture(lua_State* state) {
     auto* texture = static_cast<PanelTextureUserdata*>(lua_newuserdata(
         state, sizeof(PanelTextureUserdata)));
     new (texture) PanelTextureUserdata{nativeTexture, flywithlua::CurrentLuaScriptId(),
-                                       gTextureGeneration++, false};
+                                       gTextureGeneration++, kPanelBackendIdentity,
+                                       sessionGeneration(), false, false};
     luaL_getmetatable(state, kTextureMetatable);
     lua_setmetatable(state, -2);
     gTextures.insert(texture);
@@ -301,6 +318,11 @@ int panelDestroyTexture(lua_State* state) {
         luaL_testudata(state, 1, kTextureMetatable));
     if (texture == nullptr) {
         pushFailure(state, "panel_destroy_texture", "invalid PanelTexture userdata");
+        return 1;
+    }
+    if (texture->stale || texture->backend != kPanelBackendIdentity ||
+        texture->backendGeneration != sessionGeneration()) {
+        pushFalse(state);
         return 1;
     }
     if (texture->ownerScriptId != kSystemLuaScriptId &&
@@ -381,7 +403,7 @@ int panelDrawTexture(lua_State* state) {
     call.texture = texture->texture;
     std::copy(std::begin(scissors), std::end(scissors), std::begin(call.scissors));
     call.elementCount = 6;
-    lua_pushboolean(state, drawCalls(mesh, call) ? 1 : 0);
+    lua_pushboolean(state, drawCalls(mesh, call, MeshCoordinateSpace::PublicYUp) ? 1 : 0);
     return 1;
 }
 
@@ -450,11 +472,14 @@ int panelDrawMesh(lua_State* state) {
     }
     for (size_t i = 1; i <= indexCount; ++i) {
         lua_rawgeti(state, 2, static_cast<int>(i));
-        const bool valid = lua_isnumber(state, -1) && lua_tointeger(state, -1) >= 1 &&
-                           lua_tointeger(state, -1) <= static_cast<lua_Integer>(vertexCount) &&
-                           lua_tointeger(state, -1) - 1 <= std::numeric_limits<std::uint16_t>::max();
+        const lua_Number rawIndex = lua_tonumber(state, -1);
+        const bool valid = lua_isnumber(state, -1) && std::isfinite(rawIndex) &&
+                           std::floor(rawIndex) == rawIndex && rawIndex >= 1.0 &&
+                           rawIndex <= static_cast<lua_Number>(vertexCount) &&
+                           rawIndex - 1.0 <=
+                               static_cast<lua_Number>(std::numeric_limits<std::uint16_t>::max());
         if (valid) {
-            indices.push_back(static_cast<std::uint16_t>(lua_tointeger(state, -1) - 1));
+            indices.push_back(static_cast<std::uint16_t>(rawIndex - 1.0));
         }
         lua_pop(state, 1);
         if (!valid) {
@@ -470,7 +495,7 @@ int panelDrawMesh(lua_State* state) {
     call.texture = texture->texture;
     std::copy(std::begin(scissors), std::end(scissors), std::begin(call.scissors));
     call.elementCount = static_cast<int>(indexCount);
-    lua_pushboolean(state, drawCalls(mesh, call) ? 1 : 0);
+    lua_pushboolean(state, drawCalls(mesh, call, MeshCoordinateSpace::PublicYUp) ? 1 : 0);
     return 1;
 }
 
@@ -513,6 +538,7 @@ void invalidateLuaResources(std::uint64_t ownerScriptId) {
         destroyTexture(texture->texture);
         texture->texture = nullptr;
         texture->destroyed = true;
+        texture->stale = true;
         invalidated = true;
     }
     if (invalidated) {
