@@ -42,6 +42,9 @@ enum Capability : std::uint32_t {
     CapabilityMesh = 1u << 3,
 };
 
+constexpr std::uint32_t kRequiredCapabilityMask =
+    CapabilityPrimitives | CapabilityText | CapabilityTexture | CapabilityMesh;
+
 struct DrawCall {
     void* texture = nullptr;
     float scissors[4] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -56,10 +59,12 @@ void shutdown();
 
 BackendPreference requestedBackend();
 bool panelAvailable();
+bool panelReady();
 bool enabled();
 bool panelDrawing();
 std::uint32_t capabilities();
 bool hasCapability(Capability capability);
+bool hasAllCapabilities(std::uint32_t capabilityMask);
 void disableForSession(const char* reason);
 
 void registerWindow(XPLMWindowID window);
@@ -128,6 +133,12 @@ double measureLegacyText(const char* text, const char* fontName);
 void* createTexture(const unsigned char* rgbaImage, int width, int height);
 void destroyTexture(void* texture);
 bool drawCalls(const XPLMMesh_t& mesh, const std::vector<DrawCall>& calls);
+bool drawCalls(const XPLMMesh_t& mesh, const DrawCall& call);
+
+// These buffers are valid only during the active Panel Graphics callback.
+// They are owned by the backend so Lua mesh helpers can reuse their capacity.
+std::vector<float>& meshVertexScratch();
+std::vector<std::uint16_t>& meshIndexScratch();
 
 } // namespace flywithlua::panel
 

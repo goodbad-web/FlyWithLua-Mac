@@ -9,6 +9,7 @@ cmake_minimum_required(VERSION 3.9)
 project(FlyWithLua VERSION 2.8.0 DESCRIPTION "FlyWithLua X-Plane plugin")
 
 option(BUILD_THREEJFPS_TESTS "Build synthetic 3jFPS12 controller tests" OFF)
+option(BUILD_PANEL_GRAPHICS_TESTS "Build Panel Graphics ImGui mesh tests" OFF)
 # We now have SDK support for arm so building for both architectures for the Mac.
 # X-Plane supports OS X 11.0+, so this should ensure FlyWithLua can run on
 # all supported versions.
@@ -108,7 +109,7 @@ list(APPEND FLYWITHLUA_SRCS FlyWithLua.cpp ../cmake/FlyWithLuaSwiftBridgeStubs.c
     Graphics/PanelGraphicsLua.cpp
     Native3jFPS12/ThreeJFPSControllerCore.cpp Native3jFPS12/ThreeJFPSNative.cpp
     third_party/iniReader/inireader.cpp third_party/iniReader/readinifile.cpp)
-list(APPEND FLYWITHLUA_SRCS FloatingWindows/FLWIntegration.cpp FloatingWindows/ImGUIIntegration.cpp FloatingWindows/FloatingWindow.cpp)
+list(APPEND FLYWITHLUA_SRCS FloatingWindows/FLWIntegration.cpp FloatingWindows/ImGUIIntegration.cpp FloatingWindows/ImGuiPanelMesh.cpp FloatingWindows/FloatingWindow.cpp)
 list(APPEND FLYWITHLUA_SRCS imgui/imgui.cpp imgui/imgui_demo.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp imgui/imgui_lua_bindings.cpp)
 list(APPEND FLYWITHLUA_SRCS Fmod/FmodIntegration.cpp)
 if (WIN32)
@@ -249,4 +250,19 @@ if (BUILD_THREEJFPS_TESTS)
         "${CMAKE_SOURCE_DIR}/Native3jFPS12")
     target_compile_features(ThreeJFPSControllerCoreTests PRIVATE cxx_std_11)
     add_test(NAME ThreeJFPSControllerCoreTests COMMAND ThreeJFPSControllerCoreTests)
+endif ()
+
+if (BUILD_PANEL_GRAPHICS_TESTS)
+    enable_testing()
+    add_executable(ImGuiPanelMeshTests
+        "${CMAKE_SOURCE_DIR}/../tests/native/ImGuiPanelMeshTests.cpp"
+        FloatingWindows/ImGuiPanelMesh.cpp
+        imgui/imgui.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp)
+    target_include_directories(ImGuiPanelMeshTests PRIVATE
+        "${CMAKE_SOURCE_DIR}/SDK/CHeaders/XPLM"
+        "${CMAKE_SOURCE_DIR}/FloatingWindows"
+        "${CMAKE_SOURCE_DIR}/imgui"
+        "${CMAKE_SOURCE_DIR}/Graphics")
+    target_compile_features(ImGuiPanelMeshTests PRIVATE cxx_std_17)
+    add_test(NAME ImGuiPanelMeshTests COMMAND ImGuiPanelMeshTests)
 endif ()

@@ -21,6 +21,8 @@ void deinitFloatingWindowSupport();
 void onFlightLoop();
 bool FindAndQuarantine (lua_State *L);
 void quarantineWindowsOwnedBy(std::uint64_t ownerScriptId);
+void invalidateImguiWindows();
+void invalidateImguiWindowsOwnedBy(std::uint64_t ownerScriptId);
 void* panelTextureForLegacyID(void* legacyTextureID);
 
 }

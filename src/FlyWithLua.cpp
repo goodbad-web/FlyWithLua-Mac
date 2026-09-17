@@ -1251,15 +1251,15 @@ static void ResetLuaScriptRegistry() {
     gCurrentLuaPanelApiAllowed = false;
 }
 
-static void RunOneLuaCallbackEntries(LuaCallbackEntries& callbacks, const char* context,
+static bool RunOneLuaCallbackEntries(LuaCallbackEntries& callbacks, const char* context,
                                      flywithlua::LuaScriptId ownerScriptId,
                                      bool panelApiAllowed) {
     if (callbacks.empty() || !L || !flywithlua::LuaIsRunning) {
-        return;
+        return false;
     }
 
     if (callbacks.disabled) {
-        return;
+        return false;
     }
 
     // Keep registrations for this owner and callback kind in one closure so
@@ -1267,13 +1267,13 @@ static void RunOneLuaCallbackEntries(LuaCallbackEntries& callbacks, const char* 
     // owner is one script; legacy mode intentionally uses the system owner.
     if (ownerScriptId != flywithlua::kSystemLuaScriptId &&
         flywithlua::IsLuaScriptQuarantined(ownerScriptId)) {
-        return;
+        return false;
     }
 
     flywithlua::LuaScriptScope scriptScope(ownerScriptId);
     flywithlua::LuaPanelApiScope panelApiScope(panelApiAllowed);
     if (callbacks.chunkRef == LUA_NOREF && !CompileLuaCallbackGroup(callbacks, context, ownerScriptId)) {
-        return;
+        return false;
     }
 
     lua_rawgeti(L, LUA_REGISTRYINDEX, callbacks.chunkRef);
@@ -1282,15 +1282,23 @@ static void RunOneLuaCallbackEntries(LuaCallbackEntries& callbacks, const char* 
         const std::string errorMessage = luaError ? luaError : "unknown Lua error";
         lua_pop(L, 1);
         DisableLuaCallbackGroup(callbacks, context, errorMessage, ownerScriptId);
+        return false;
     }
+    return true;
 }
 
 static void RunLuaCallbackEntries(LuaCallbackKind kind, LuaCallbackEntries& legacyCallbacks,
                                   const char* context) {
+    const bool invalidateImgui = kind == LuaCallbackKind::EveryFrame ||
+                                 kind == LuaCallbackKind::Often ||
+                                 kind == LuaCallbackKind::Sometimes;
     // New panel callbacks are owner-scoped even when legacy callback scope is selected.
     const bool useOwnerScope = gUseIsolatedCallbackScope || kind == LuaCallbackKind::PanelDraw;
     if (!useOwnerScope) {
-        RunOneLuaCallbackEntries(legacyCallbacks, context, flywithlua::kSystemLuaScriptId, false);
+        if (RunOneLuaCallbackEntries(legacyCallbacks, context,
+                                     flywithlua::kSystemLuaScriptId, false) && invalidateImgui) {
+            flwnd::invalidateImguiWindows();
+        }
         return;
     }
 
@@ -1300,13 +1308,18 @@ static void RunLuaCallbackEntries(LuaCallbackKind kind, LuaCallbackEntries& lega
             recordIt->second.quarantined) {
             continue;
         }
-        RunOneLuaCallbackEntries(ScriptCallbackEntries(scriptId, kind), context, scriptId,
-                                 kind == LuaCallbackKind::PanelDraw);
+        if (RunOneLuaCallbackEntries(ScriptCallbackEntries(scriptId, kind), context, scriptId,
+                                     kind == LuaCallbackKind::PanelDraw) && invalidateImgui) {
+            flwnd::invalidateImguiWindowsOwnedBy(scriptId);
+        }
     }
 
     // API registrations made outside a script load are retained as a system callback.
     if (!legacyCallbacks.empty()) {
-        RunOneLuaCallbackEntries(legacyCallbacks, context, flywithlua::kSystemLuaScriptId, false);
+        if (RunOneLuaCallbackEntries(legacyCallbacks, context,
+                                     flywithlua::kSystemLuaScriptId, false) && invalidateImgui) {
+            flwnd::invalidateImguiWindows();
+        }
     }
 }
 

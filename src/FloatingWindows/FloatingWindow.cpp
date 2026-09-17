@@ -48,8 +48,10 @@ FloatingWindow::FloatingWindow(int winWidth, int winHeight, int winDecoration,
     viewportRef = XPLMFindDataRef("sim/graphics/view/viewport");
     projectionMatrixRef = XPLMFindDataRef("sim/graphics/view/projection_matrix");
 
-    const bool vrEnabled = vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
-    createWindow(usePanelGraphics && flywithlua::panel::enabled() && !vrEnabled);
+    // Panel Graphics is a property of the XPLM window and cannot be changed
+    // by switching VR modes. Create the requested content type first; the
+    // Panel window is hidden while VR is active below.
+    createWindow(usePanelGraphics);
     moveFromOrToVR();
 }
 
@@ -90,8 +92,10 @@ void FloatingWindow::createWindow(bool usePanelGraphics) {
     params.layer = xplm_WindowLayerFloatingWindows;
 
     params.decorateAsFloatingWindow = decoration;
-    const bool vrEnabled = vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
-    const bool requestedPanel = usePanelGraphics && flywithlua::panel::enabled() && !vrEnabled;
+    const bool requestedPanel = usePanelGraphics;
+    if (requestedPanel && !flywithlua::panel::panelReady()) {
+        throw std::runtime_error("Panel Graphics is unavailable; ImGui windows require the complete Panel API");
+    }
     panelGraphics = requestedPanel;
     if (requestedPanel) {
         flywithlua::panel::configurePanelWindow(params);
@@ -101,14 +105,10 @@ void FloatingWindow::createWindow(bool usePanelGraphics) {
 
     window = XPLMCreateWindowEx(&params);
 
-    if (!window && requestedPanel) {
-        flywithlua::panel::disableForSession("Panel Graphics floating window creation failed");
-        panelGraphics = false;
-        flywithlua::panel::configureOpenGLWindow(params);
-        window = XPLMCreateWindowEx(&params);
-    }
-
     if (!window) {
+        if (requestedPanel) {
+            flywithlua::panel::disableForSession("Panel Graphics floating window creation failed");
+        }
         throw std::runtime_error("Couldn't create window");
     }
 
@@ -266,14 +266,23 @@ bool FloatingWindow::getIsCmdVisible() {
 
 void FloatingWindow::moveFromOrToVR() {
     const bool vrEnabled = vrEnabledRef != nullptr && XPLMGetDatai(vrEnabledRef) != 0;
-    const bool shouldUsePanelGraphics = panelGraphicsRequested &&
-        flywithlua::panel::enabled() && !vrEnabled;
-
-    // XPLMWindow contentType is fixed at creation time. Switch between the
-    // Panel Graphics and OpenGL implementations at the safe flight-loop
-    // boundary instead of trying to draw through the wrong API.
-    if (shouldUsePanelGraphics != panelGraphics) {
-        recreateWindow(shouldUsePanelGraphics);
+    if (panelGraphicsRequested) {
+        // Panel Graphics is the required ImGui backend. It cannot be
+        // recreated as an OpenGL window when VR is active because the
+        // XPLM content type is immutable. Keep the Panel window and hide it
+        // until 2D mode returns.
+        if (vrEnabled) {
+            if (!panelSuppressedForVR) {
+                panelVisibilityBeforeVR = XPLMGetWindowIsVisible(window) != 0;
+                panelSuppressedForVR = true;
+                XPLMSetWindowIsVisible(window, 0);
+            }
+            return;
+        }
+        if (panelSuppressedForVR) {
+            panelSuppressedForVR = false;
+            XPLMSetWindowIsVisible(window, panelVisibilityBeforeVR ? 1 : 0);
+        }
         return;
     }
 

@@ -28,9 +28,7 @@
 namespace flwnd {
 
 ImGUIWindow::ImGUIWindow(int width, int height, int decoration, std::uint64_t ownerScriptId):
-    FloatingWindow(width, height, decoration,
-                   flywithlua::panel::hasCapability(flywithlua::panel::CapabilityMesh),
-                   ownerScriptId)
+    FloatingWindow(width, height, decoration, true, ownerScriptId)
 {
     imGuiContext = ImGui::CreateContext();
     ImGui::SetCurrentContext(imGuiContext);
@@ -69,10 +67,7 @@ ImGUIWindow::ImGUIWindow(int width, int height, int decoration, std::uint64_t ow
     io.KeyMap[ImGuiKey_Z] = XPLM_VK_Z;
 
     panelRenderer = isPanelGraphics();
-    if (!syncFontTexture(panelRenderer)) {
-        if (panelRenderer) {
-            flywithlua::panel::disableForSession("Panel Graphics ImGui font texture creation failed");
-        }
+    if (!panelRenderer && !syncFontTexture(false)) {
         throw std::runtime_error("Could not create ImGui font texture");
     }
 }
@@ -138,10 +133,40 @@ bool ImGUIWindow::syncFontTexture(bool usePanelGraphics) {
 
 void ImGUIWindow::setBuildCallback(BuildCallback cb) {
     doBuild = cb;
+    requestRedraw();
 }
 
 void ImGUIWindow::setErrorHandler(ErrorHandler eh) {
     onError = eh;
+}
+
+void ImGUIWindow::requestRedraw() {
+    imguiDirty = true;
+    panelMesh.valid = false;
+}
+
+void ImGUIWindow::setContinuousUpdate(bool enabled) {
+    continuousUpdate = enabled;
+    requestRedraw();
+}
+
+ImGUIWindow::RenderStats ImGUIWindow::renderStats() const {
+    return stats;
+}
+
+void ImGUIWindow::updateGeometry() {
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+    XPLMGetWindowGeometry(getXWindow(), &left, &top, &right, &bottom);
+    if (left != mLeft || top != mTop || right != mRight || bottom != mBottom) {
+        mLeft = left;
+        mTop = top;
+        mRight = right;
+        mBottom = bottom;
+        requestRedraw();
+    }
 }
 
 void ImGUIWindow::onDraw() {
@@ -150,20 +175,24 @@ void ImGUIWindow::onDraw() {
     }
 
     const bool windowUsesPanel = isPanelGraphics();
+    flywithlua::panel::PanelDrawScope panelScope(windowUsesPanel ? getXWindow() : nullptr);
+    if (windowUsesPanel && !panelScope.active()) {
+        return;
+    }
+    // XPLMCreateTexture is valid only from a panel window's draw callback.
+    // Enter the scope before lazily creating the ImGui font texture.
     if (!syncFontTexture(windowUsesPanel)) {
         if (windowUsesPanel) {
             flywithlua::panel::disableForSession("Panel Graphics ImGui font texture creation failed");
         }
         return;
     }
-
-    flywithlua::panel::PanelDrawScope panelScope(windowUsesPanel ? getXWindow() : nullptr);
-    if (windowUsesPanel && !panelScope.active()) {
-        return;
-    }
     updateMatrices();
     try {
-        buildGUI();
+        updateGeometry();
+        if (continuousUpdate || imguiDirty || !panelMesh.valid || !panelRenderer) {
+            buildGUI();
+        }
         showGUI(panelScope.active());
     } catch (const std::exception &e) {
         if (onError) {
@@ -189,9 +218,9 @@ void ImGUIWindow::onDraw() {
 void ImGUIWindow::buildGUI() {
     ImGui::SetCurrentContext(imGuiContext);
     auto &io = ImGui::GetIO();
-
-    // transfer the window geometry to ImGui
-    XPLMGetWindowGeometry(getXWindow(), &mLeft, &mTop, &mRight, &mBottom);
+    // Consume the current invalidation before executing Lua. A redraw request
+    // made by the builder itself remains set for the next frame.
+    imguiDirty = false;
 
     float win_width = static_cast<float>(mRight - mLeft);
     float win_height = static_cast<float>(mTop - mBottom);
@@ -218,11 +247,13 @@ void ImGUIWindow::buildGUI() {
     ImGui::Begin("FlyWithLua", nullptr, fwl_imgui_wnd_flags);
 
     if (doBuild) {
+        ++stats.builderRuns;
         doBuild(*this);
     }
     ImGui::End();
 
     ImGui::Render();
+    frameRendered = true;
 }
 
 void ImGUIWindow::showGUI(bool panelFrame) {
@@ -231,13 +262,29 @@ void ImGUIWindow::showGUI(bool panelFrame) {
 
     ImDrawData *drawData = ImGui::GetDrawData();
 
-    // Avoid rendering when minimized, scale coordinates for retina displays (screen coordinates != framebuffer coordinates)
-    drawData->ScaleClipRects(io.DisplayFramebufferScale);
-
     if (panelFrame) {
+        bool rebuilt = false;
+        if (frameRendered && drawData != nullptr) {
+            // Avoid rendering when minimized, scale coordinates for retina displays
+            // (screen coordinates != framebuffer coordinates).
+            drawData->ScaleClipRects(io.DisplayFramebufferScale);
+            rebuildPanelMesh(drawData);
+            frameRendered = false;
+            rebuilt = true;
+        }
+        if (!rebuilt && panelMesh.valid) {
+            ++stats.cachedDraws;
+        }
         showPanelGUI();
         return;
     }
+
+    if (drawData == nullptr) {
+        return;
+    }
+
+    // Avoid rendering when minimized, scale coordinates for retina displays (screen coordinates != framebuffer coordinates)
+    drawData->ScaleClipRects(io.DisplayFramebufferScale);
 
     // We are using the OpenGL fixed pipeline because messing with the
     // shader-state in X-Plane is not very well documented, but using the fixed
@@ -304,74 +351,31 @@ void ImGUIWindow::showGUI(bool panelFrame) {
 }
 
 void ImGUIWindow::showPanelGUI() {
-    ImDrawData* drawData = ImGui::GetDrawData();
-    if (drawData == nullptr || drawData->CmdListsCount == 0 || !panelFontTexture) {
+    if (!panelMesh.valid || panelMesh.vertices.empty() || panelMesh.indices.empty() ||
+        panelMesh.drawCalls.empty() || !panelFontTexture) {
         return;
     }
 
     static_assert(sizeof(ImDrawIdx) == sizeof(uint16_t),
                   "Panel Graphics ImGui helper requires 16-bit ImDrawIdx");
 
-    std::vector<float> vertices;
-    std::vector<uint16_t> indices;
-    std::vector<flywithlua::panel::DrawCall> calls;
-    vertices.reserve(static_cast<size_t>(drawData->TotalVtxCount) * 5u);
-    indices.reserve(static_cast<size_t>(drawData->TotalIdxCount));
-
-    for (int listIndex = 0; listIndex < drawData->CmdListsCount; ++listIndex) {
-        const ImDrawList* commandList = drawData->CmdLists[listIndex];
-        const int vertexOffset = static_cast<int>(vertices.size() / 5u);
-        const size_t vertexBytes = static_cast<size_t>(commandList->VtxBuffer.Size) * sizeof(ImDrawVert);
-        const size_t oldFloatCount = vertices.size();
-        vertices.resize(oldFloatCount + static_cast<size_t>(commandList->VtxBuffer.Size) * 5u);
-        std::memcpy(vertices.data() + oldFloatCount, commandList->VtxBuffer.Data, vertexBytes);
-
-        const int indexOffset = static_cast<int>(indices.size());
-        indices.insert(indices.end(), commandList->IdxBuffer.Data,
-                       commandList->IdxBuffer.Data + commandList->IdxBuffer.Size);
-
-        for (int commandIndex = 0; commandIndex < commandList->CmdBuffer.Size; ++commandIndex) {
-            const ImDrawCmd* command = &commandList->CmdBuffer[commandIndex];
-            if (command->UserCallback != nullptr) {
-                command->UserCallback(commandList, command);
-                continue;
-            }
-            if (command->TextureId == nullptr || command->ElemCount == 0) {
-                continue;
-            }
-
-            void* texture = command->TextureId;
-            if (texture != panelFontTexture) {
-                texture = panelTextureForLegacyID(texture);
-                if (texture == nullptr) {
-                    continue;
-                }
-            }
-
-            flywithlua::panel::DrawCall drawCall;
-            drawCall.texture = texture;
-            drawCall.scissors[0] = command->ClipRect.x;
-            drawCall.scissors[1] = command->ClipRect.y;
-            drawCall.scissors[2] = command->ClipRect.z;
-            drawCall.scissors[3] = command->ClipRect.w;
-            drawCall.indexOffset = indexOffset + static_cast<int>(command->IdxOffset);
-            drawCall.elementCount = static_cast<int>(command->ElemCount);
-            drawCall.vertexOffset = vertexOffset + static_cast<int>(command->VtxOffset);
-            calls.push_back(drawCall);
-        }
-    }
-
-    if (vertices.empty() || indices.empty() || calls.empty()) {
-        return;
-    }
-
     XPLMMesh_t mesh{};
-    mesh.vertex_count = static_cast<int>(vertices.size() / 5u);
-    mesh.vertices = vertices.data();
-    mesh.index_count = static_cast<int>(indices.size());
-    mesh.indices = indices.data();
-    if (!flywithlua::panel::drawCalls(mesh, calls)) {
+    mesh.vertex_count = static_cast<int>(panelMesh.vertices.size() / 5u);
+    mesh.vertices = panelMesh.vertices.data();
+    mesh.index_count = static_cast<int>(panelMesh.indices.size());
+    mesh.indices = panelMesh.indices.data();
+    if (!flywithlua::panel::drawCalls(mesh, panelMesh.drawCalls)) {
         flywithlua::panel::disableForSession("Panel Graphics ImGui draw failed");
+    }
+}
+
+void ImGUIWindow::rebuildPanelMesh(const ImDrawData* drawData) {
+    ++stats.meshRebuilds;
+    const PanelTextureResolver resolveTexture = [](void* texture) {
+        return panelTextureForLegacyID(texture);
+    };
+    if (!rebuildImGuiPanelMesh(drawData, panelFontTexture, panelMesh, resolveTexture)) {
+        throw std::runtime_error("Invalid ImGui Panel Graphics mesh");
     }
 }
 
@@ -379,9 +383,7 @@ bool ImGUIWindow::onClick(int x, int y, XPLMMouseStatus status) {
     ImGui::SetCurrentContext(imGuiContext);
     ImGuiIO& io = ImGui::GetIO();
 
-    float outX, outY;
-    translateToImguiSpace(x, y, outX, outY);
-    io.MousePos = ImVec2(outX, outY);
+    updateMousePosition(x, y);
 
     switch (status) {
     case xplm_MouseDown:
@@ -393,6 +395,7 @@ bool ImGUIWindow::onClick(int x, int y, XPLMMouseStatus status) {
         break;
     }
 
+    requestRedraw();
     return FloatingWindow::onClick(x, y, status);
 }
 
@@ -400,10 +403,7 @@ bool ImGUIWindow::onMouseWheel(int x, int y, int wheel, int clicks) {
     ImGui::SetCurrentContext(imGuiContext);
     ImGuiIO& io = ImGui::GetIO();
 
-    float outX, outY;
-    translateToImguiSpace(x, y, outX, outY);
-
-    io.MousePos = ImVec2(outX, outY);
+    updateMousePosition(x, y);
     switch (wheel) {
     case 0:
         io.MouseWheel = static_cast<float>(clicks);
@@ -413,16 +413,14 @@ bool ImGUIWindow::onMouseWheel(int x, int y, int wheel, int clicks) {
         break;
     }
 
+    requestRedraw();
     return FloatingWindow::onMouseWheel(x, y, wheel, clicks);
 }
 
 XPLMCursorStatus ImGUIWindow::getCursor(int x, int y) {
-    ImGui::SetCurrentContext(imGuiContext);
-    ImGuiIO& io = ImGui::GetIO();
-
-    float outX, outY;
-    translateToImguiSpace(x, y, outX, outY);
-    io.MousePos = ImVec2(outX, outY);
+    if (updateMousePosition(x, y)) {
+        requestRedraw();
+    }
 
     return xplm_CursorDefault;
 }
@@ -452,7 +450,7 @@ void ImGUIWindow::onKey(char key, XPLMKeyFlags flags, char virtualKey, bool losi
         }
     }
 
-    buildGUI();
+    requestRedraw();
 
     FloatingWindow::onKey(key, flags, virtualKey, losingFocus);
 }
@@ -460,6 +458,18 @@ void ImGUIWindow::onKey(char key, XPLMKeyFlags flags, char virtualKey, bool losi
 void ImGUIWindow::translateImguiToBoxel(float inX, float inY, int& outX, int& outY) {
     outX = (int)(mLeft + inX);
     outY = (int)(mTop - inY);
+}
+
+bool ImGUIWindow::updateMousePosition(int x, int y) {
+    ImGui::SetCurrentContext(imGuiContext);
+    ImGuiIO& io = ImGui::GetIO();
+
+    float outX, outY;
+    translateToImguiSpace(x, y, outX, outY);
+    const bool changed = std::memcmp(&io.MousePos.x, &outX, sizeof(outX)) != 0 ||
+                         std::memcmp(&io.MousePos.y, &outY, sizeof(outY)) != 0;
+    io.MousePos = ImVec2(outX, outY);
+    return changed;
 }
 
 void ImGUIWindow::translateToImguiSpace(int inX, int inY, float& outX, float& outY) {
@@ -478,10 +488,15 @@ void ImGUIWindow::translateToImguiSpace(int inX, int inY, float& outX, float& ou
 }
 
 ImGUIWindow::~ImGUIWindow() {
+    ImGui::SetCurrentContext(imGuiContext);
     if (panelFontTexture != nullptr) {
         flywithlua::panel::destroyTexture(panelFontTexture);
         panelFontTexture = nullptr;
     }
+    panelMesh.vertices.clear();
+    panelMesh.indices.clear();
+    panelMesh.drawCalls.clear();
+    panelMesh.valid = false;
     ImGui::DestroyContext(imGuiContext);
     if (fontTextureId != 0) {
         glDeleteTextures(1, &fontTextureId);

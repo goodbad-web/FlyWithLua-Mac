@@ -54,6 +54,14 @@ std::vector<GLuint> textureIDs;
 std::vector<void*> panelTextureIDs;
 std::unordered_map<uintptr_t, void*> panelTextureByOpenGLID;
 
+struct PendingPanelTexture {
+    std::vector<unsigned char> rgba;
+    int width = 0;
+    int height = 0;
+};
+
+std::unordered_map<uintptr_t, PendingPanelTexture> pendingPanelTextures;
+
 intptr_t loadImage(const std::string&fileName) {
     int imgWidth, imgHeight, nComps;
     uint8_t *data = stbi_load(fileName.c_str(), &imgWidth, &imgHeight, &nComps, sizeof(uint32_t));
@@ -72,17 +80,22 @@ intptr_t loadImage(const std::string&fileName) {
             GL_RGBA, imgWidth, imgHeight, 0,
             GL_RGBA, GL_UNSIGNED_BYTE, data);
 
-    void* panelTexture = nullptr;
     if (flywithlua::panel::enabled()) {
-        panelTexture = flywithlua::panel::createTexture(data, imgWidth, imgHeight);
+        PendingPanelTexture pending;
+        pending.width = imgWidth;
+        pending.height = imgHeight;
+        pending.rgba.assign(data, data + static_cast<size_t>(imgWidth) *
+                                      static_cast<size_t>(imgHeight) * 4u);
+        pendingPanelTextures[static_cast<uintptr_t>(id)] = std::move(pending);
     }
     stbi_image_free(data);
     textureIDs.push_back(id);
 
-    if (panelTexture != nullptr) {
-        panelTextureIDs.push_back(panelTexture);
-        panelTextureByOpenGLID[static_cast<uintptr_t>(id)] = panelTexture;
-    }
+    // A script may load an image between two cached ImGui frames. Rebuild so
+    // the next frame can resolve the new legacy texture ID safely. The Panel
+    // GPU upload is deferred until panelTextureForLegacyID runs inside a
+    // Panel Graphics draw callback.
+    invalidateImguiWindows();
 
     return id;
 }
@@ -90,7 +103,25 @@ intptr_t loadImage(const std::string&fileName) {
 void* panelTextureForLegacyID(void* legacyTextureID) {
     const auto key = reinterpret_cast<uintptr_t>(legacyTextureID);
     const auto found = panelTextureByOpenGLID.find(key);
-    return found != panelTextureByOpenGLID.end() ? found->second : nullptr;
+    if (found != panelTextureByOpenGLID.end()) {
+        return found->second;
+    }
+
+    const auto pending = pendingPanelTextures.find(key);
+    if (pending == pendingPanelTextures.end()) {
+        return nullptr;
+    }
+
+    void* panelTexture = flywithlua::panel::createTexture(pending->second.rgba.data(),
+                                                          pending->second.width,
+                                                          pending->second.height);
+    if (panelTexture == nullptr) {
+        return nullptr;
+    }
+    panelTextureIDs.push_back(panelTexture);
+    panelTextureByOpenGLID[key] = panelTexture;
+    pendingPanelTextures.erase(pending);
+    return panelTexture;
 }
 
 int LuaCreateFloatingWindow(lua_State *L) {
@@ -607,6 +638,40 @@ void LuaSetImguiBuilder(sol::light<FloatingWindow> fwnd, CallbackProvider const&
     });
 }
 
+void LuaRequestImguiRedraw(sol::light<FloatingWindow> fwnd) {
+    auto* wnd = dynamic_cast<ImGUIWindow*>(static_cast<FloatingWindow*>(fwnd));
+    if (wnd == nullptr) {
+        flywithlua::panic("FlyWithLua Error: float_wnd_request_imgui_redraw expects an ImGui window");
+        return;
+    }
+    wnd->requestRedraw();
+}
+
+void LuaSetImguiContinuousUpdate(sol::light<FloatingWindow> fwnd, bool enabled) {
+    auto* wnd = dynamic_cast<ImGUIWindow*>(static_cast<FloatingWindow*>(fwnd));
+    if (wnd == nullptr) {
+        flywithlua::panic("FlyWithLua Error: float_wnd_set_imgui_continuous_update expects an ImGui window");
+        return;
+    }
+    wnd->setContinuousUpdate(enabled);
+}
+
+sol::table LuaGetImguiStats(sol::this_state state, sol::light<FloatingWindow> fwnd) {
+    auto* wnd = dynamic_cast<ImGUIWindow*>(static_cast<FloatingWindow*>(fwnd));
+    if (wnd == nullptr) {
+        flywithlua::panic("FlyWithLua Error: float_wnd_get_imgui_stats expects an ImGui window");
+        return sol::table(sol::state_view(state));
+    }
+
+    const auto stats = wnd->renderStats();
+    sol::state_view lua(state);
+    sol::table result = lua.create_table();
+    result["builder_runs"] = stats.builderRuns;
+    result["mesh_rebuilds"] = stats.meshRebuilds;
+    result["cached_draws"] = stats.cachedDraws;
+    return result;
+}
+
 /**
  * Accepts a function reference and creates an appropriate callback provider for actual callback setter.
  *
@@ -678,6 +743,9 @@ void initFloatingWindowSupport() {
 	::sol::state_view lua(L);
     lua.set_function("float_wnd_set_imgui_builder", sol::overload(LuaSetCallbackByName<LuaSetImguiBuilder>,
                                                                   LuaSetCallbackByRef<LuaSetImguiBuilder>));
+    lua.set_function("float_wnd_request_imgui_redraw", LuaRequestImguiRedraw);
+    lua.set_function("float_wnd_set_imgui_continuous_update", LuaSetImguiContinuousUpdate);
+    lua.set_function("float_wnd_get_imgui_stats", LuaGetImguiStats);
     lua.set_function("float_wnd_set_ondraw", sol::overload(LuaSetCallbackByName<LuaSetOnDrawCallback>,
                                                            LuaSetCallbackByRef<LuaSetOnDrawCallback>));
     lua.set_function("float_wnd_set_onclick", sol::overload(LuaSetCallbackByName<LuaSetOnClickCallback>,
@@ -691,6 +759,7 @@ void initFloatingWindowSupport() {
 
 void deinitFloatingWindowSupport() {
     floatingWindows.clear();
+    pendingPanelTextures.clear();
     for (void* texture : panelTextureIDs) {
         flywithlua::panel::destroyTexture(texture);
     }
@@ -710,6 +779,32 @@ void quarantineWindowsOwnedBy(std::uint64_t ownerScriptId) {
         if (window != nullptr && window->ownerScriptId() == ownerScriptId) {
             window->setVisible(false);
             window->setIsCmdVisible(0);
+        }
+    }
+}
+
+void invalidateImguiWindows() {
+    for (const auto& window : floatingWindows) {
+        if (window == nullptr) {
+            continue;
+        }
+        if (auto* imguiWindow = dynamic_cast<ImGUIWindow*>(window.get())) {
+            imguiWindow->requestRedraw();
+        }
+    }
+}
+
+void invalidateImguiWindowsOwnedBy(std::uint64_t ownerScriptId) {
+    if (ownerScriptId == flywithlua::kSystemLuaScriptId) {
+        invalidateImguiWindows();
+        return;
+    }
+    for (const auto& window : floatingWindows) {
+        if (window == nullptr || window->ownerScriptId() != ownerScriptId) {
+            continue;
+        }
+        if (auto* imguiWindow = dynamic_cast<ImGUIWindow*>(window.get())) {
+            imguiWindow->requestRedraw();
         }
     }
 }

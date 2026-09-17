@@ -2,6 +2,7 @@
 
 #include "PanelGraphicsBackend.h"
 #include "../FlyWithLua.h"
+#include "../FloatingWindows/FLWIntegration.h"
 #include "../FloatingWindows/stb_image.h"
 
 #include <algorithm>
@@ -79,6 +80,7 @@ int destroyTextureUserdata(lua_State* state) {
         flywithlua::panel::destroyTexture(texture->texture);
         texture->texture = nullptr;
         texture->destroyed = true;
+        flwnd::invalidateImguiWindows();
     }
     if (texture != nullptr) {
         gTextures.erase(texture);
@@ -312,6 +314,7 @@ int panelDestroyTexture(lua_State* state) {
         texture->destroyed = true;
     }
     gTextures.erase(texture);
+    flwnd::invalidateImguiWindows();
     lua_pushboolean(state, 1);
     return 1;
 }
@@ -356,7 +359,11 @@ int panelDrawTexture(lua_State* state) {
         }
     }
 
-    std::vector<float> vertices;
+    std::vector<float>& vertices = meshVertexScratch();
+    vertices.clear();
+    if (vertices.capacity() < 20u) {
+        vertices.reserve(20u);
+    }
     const std::uint32_t color = colorFromCurrentState();
     writeVertex(vertices, static_cast<float>(lua_tonumber(state, 2)),
                 static_cast<float>(lua_tonumber(state, 3)), 0.0f, 1.0f, color);
@@ -366,14 +373,15 @@ int panelDrawTexture(lua_State* state) {
                 static_cast<float>(lua_tonumber(state, 5)), 1.0f, 0.0f, color);
     writeVertex(vertices, static_cast<float>(lua_tonumber(state, 2)),
                 static_cast<float>(lua_tonumber(state, 5)), 0.0f, 0.0f, color);
-    const std::uint16_t indices[] = {0, 1, 2, 0, 2, 3};
+    std::vector<std::uint16_t>& indices = meshIndexScratch();
+    indices.assign({0, 1, 2, 0, 2, 3});
     const float scissors[] = {0.0f, 0.0f, 100000.0f, 100000.0f};
-    XPLMMesh_t mesh{4, vertices.data(), 6, indices};
+    XPLMMesh_t mesh{4, vertices.data(), 6, indices.data()};
     DrawCall call;
     call.texture = texture->texture;
     std::copy(std::begin(scissors), std::end(scissors), std::begin(call.scissors));
     call.elementCount = 6;
-    lua_pushboolean(state, drawCalls(mesh, {call}) ? 1 : 0);
+    lua_pushboolean(state, drawCalls(mesh, call) ? 1 : 0);
     return 1;
 }
 
@@ -414,13 +422,17 @@ int panelDrawMesh(lua_State* state) {
     const size_t vertexCount = lua_objlen(state, 1);
     const size_t indexCount = lua_objlen(state, 2);
     if (vertexCount == 0 || vertexCount > std::numeric_limits<int>::max() ||
+        vertexCount > std::numeric_limits<size_t>::max() / 5u ||
         indexCount == 0 || indexCount % 3 != 0 || indexCount > std::numeric_limits<int>::max()) {
         pushFailure(state, "panel_draw_mesh", "invalid mesh dimensions");
         return 1;
     }
 
-    std::vector<float> vertices;
-    vertices.reserve(vertexCount * 5u);
+    std::vector<float>& vertices = meshVertexScratch();
+    vertices.clear();
+    if (vertices.capacity() < vertexCount * 5u) {
+        vertices.reserve(vertexCount * 5u);
+    }
     for (size_t i = 1; i <= vertexCount; ++i) {
         lua_rawgeti(state, 1, static_cast<int>(i));
         const bool valid = readMeshVertex(state, -1, vertices);
@@ -431,8 +443,11 @@ int panelDrawMesh(lua_State* state) {
         }
     }
 
-    std::vector<std::uint16_t> indices;
-    indices.reserve(indexCount);
+    std::vector<std::uint16_t>& indices = meshIndexScratch();
+    indices.clear();
+    if (indices.capacity() < indexCount) {
+        indices.reserve(indexCount);
+    }
     for (size_t i = 1; i <= indexCount; ++i) {
         lua_rawgeti(state, 2, static_cast<int>(i));
         const bool valid = lua_isnumber(state, -1) && lua_tointeger(state, -1) >= 1 &&
@@ -455,7 +470,7 @@ int panelDrawMesh(lua_State* state) {
     call.texture = texture->texture;
     std::copy(std::begin(scissors), std::end(scissors), std::begin(call.scissors));
     call.elementCount = static_cast<int>(indexCount);
-    lua_pushboolean(state, drawCalls(mesh, {call}) ? 1 : 0);
+    lua_pushboolean(state, drawCalls(mesh, call) ? 1 : 0);
     return 1;
 }
 
@@ -487,6 +502,7 @@ void registerLuaFunctions(lua_State* state) {
 }
 
 void invalidateLuaResources(std::uint64_t ownerScriptId) {
+    bool invalidated = false;
     for (PanelTextureUserdata* texture : gTextures) {
         if (texture == nullptr || texture->destroyed || texture->texture == nullptr) {
             continue;
@@ -497,6 +513,10 @@ void invalidateLuaResources(std::uint64_t ownerScriptId) {
         destroyTexture(texture->texture);
         texture->texture = nullptr;
         texture->destroyed = true;
+        invalidated = true;
+    }
+    if (invalidated) {
+        flwnd::invalidateImguiWindows();
     }
 }
 

@@ -26,7 +26,10 @@
 
 #include <memory>
 #include <string>
+#include <cstdint>
+#include <vector>
 #include "FloatingWindow.h"
+#include "ImGuiPanelMesh.h"
 #include "imgui/imgui.h"
 #include "lua.hpp"
 
@@ -37,9 +40,18 @@ public:
     using BuildCallback = std::function<void(ImGUIWindow &)>;
     using ErrorHandler = std::function<void(const std::string &)>;
 
+    struct RenderStats {
+        std::uint64_t builderRuns = 0;
+        std::uint64_t meshRebuilds = 0;
+        std::uint64_t cachedDraws = 0;
+    };
+
     ImGUIWindow(int width, int height, int decoration, std::uint64_t ownerScriptId = 0);
     void setErrorHandler(ErrorHandler eh);
     void setBuildCallback(BuildCallback cb);
+    void requestRedraw();
+    void setContinuousUpdate(bool enabled);
+    RenderStats renderStats() const;
     ~ImGUIWindow();
 protected:
     void onDraw() override;
@@ -56,11 +68,19 @@ private:
     BuildCallback doBuild;
     bool stopped = false;
     bool panelRenderer = false;
+    bool imguiDirty = true;
+    bool frameRendered = false;
+    bool continuousUpdate = false;
+    ImGuiPanelMesh panelMesh;
+    RenderStats stats;
 
+    void updateGeometry();
     void buildGUI();
     void showGUI(bool panelFrame);
     void showPanelGUI();
+    void rebuildPanelMesh(const ImDrawData* drawData);
     bool syncFontTexture(bool usePanelGraphics);
+    bool updateMousePosition(int x, int y);
 
     void translateImguiToBoxel(float inX, float inY, int &outX, int &outY);
     void translateToImguiSpace(int inX, int inY, float &outX, float &outY);

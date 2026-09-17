@@ -75,6 +75,8 @@ private:
     bool panelGraphics = false;
     std::uint64_t ownerScript = 0;
     bool isInVR = false;
+    bool panelSuppressedForVR = false;
+    bool panelVisibilityBeforeVR = false;
 
     int saved2DLeft = 0;
     int saved2DTop = 0;
