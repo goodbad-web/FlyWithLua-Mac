@@ -29,6 +29,19 @@ enum class LegacyPrimitiveMode {
     QuadStrip,
 };
 
+enum class PrimitiveSource {
+    Legacy,
+    Panel,
+};
+
+enum Capability : std::uint32_t {
+    CapabilityNone = 0,
+    CapabilityPrimitives = 1u << 0,
+    CapabilityText = 1u << 1,
+    CapabilityTexture = 1u << 2,
+    CapabilityMesh = 1u << 3,
+};
+
 struct DrawCall {
     void* texture = nullptr;
     float scissors[4] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -45,18 +58,39 @@ BackendPreference requestedBackend();
 bool panelAvailable();
 bool enabled();
 bool panelDrawing();
+std::uint32_t capabilities();
+bool hasCapability(Capability capability);
 void disableForSession(const char* reason);
+
+void registerWindow(XPLMWindowID window);
+void unregisterWindow(XPLMWindowID window);
 
 void configurePanelWindow(XPLMCreateWindow_t& params);
 void configureOpenGLWindow(XPLMCreateWindow_t& params);
 bool beginPanelWindow(XPLMWindowID window);
 void endPanelWindow();
 
+class PanelDrawScope {
+public:
+    explicit PanelDrawScope(XPLMWindowID window);
+    ~PanelDrawScope();
+
+    PanelDrawScope(const PanelDrawScope&) = delete;
+    PanelDrawScope& operator=(const PanelDrawScope&) = delete;
+
+    bool active() const;
+
+private:
+    bool previousLuaDrawingState_ = true;
+    bool active_ = false;
+};
+
 void setColor(float red, float green, float blue, float alpha);
+std::uint32_t currentColor();
 void setLineWidth(float width);
-void beginPrimitive(LegacyPrimitiveMode mode);
-void vertex(float x, float y);
-void endPrimitive();
+bool beginPrimitive(LegacyPrimitiveMode mode, PrimitiveSource source);
+bool vertex(float x, float y, PrimitiveSource source);
+bool endPrimitive(PrimitiveSource source);
 void drawFilledRect(float x1, float y1, float x2, float y2);
 
 bool drawText(float x,

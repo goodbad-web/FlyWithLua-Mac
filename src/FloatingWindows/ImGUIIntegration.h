@@ -37,7 +37,7 @@ public:
     using BuildCallback = std::function<void(ImGUIWindow &)>;
     using ErrorHandler = std::function<void(const std::string &)>;
 
-    ImGUIWindow(int width, int height, int decoration);
+    ImGUIWindow(int width, int height, int decoration, std::uint64_t ownerScriptId = 0);
     void setErrorHandler(ErrorHandler eh);
     void setBuildCallback(BuildCallback cb);
     ~ImGUIWindow();

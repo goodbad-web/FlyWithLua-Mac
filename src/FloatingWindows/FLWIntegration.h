@@ -8,6 +8,7 @@
 #define FLOATINGWINDOWS_FLWINTEGRATION_H_
 
 #include "lua.hpp"
+#include <cstdint>
 
 // globals for imgui lua bindings
 extern lua_State* lState;
@@ -19,6 +20,7 @@ void initFloatingWindowSupport();
 void deinitFloatingWindowSupport();
 void onFlightLoop();
 bool FindAndQuarantine (lua_State *L);
+void quarantineWindowsOwnedBy(std::uint64_t ownerScriptId);
 void* panelTextureForLegacyID(void* legacyTextureID);
 
 }

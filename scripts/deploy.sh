@@ -189,6 +189,31 @@ merge_file() {
     cp -p "$source_path" "$destination_path"
 }
 
+preserve_disabled_script_state() {
+    local active_root="$1"
+    local disabled_root="$2"
+    local disabled_file
+    local relative_path
+    local active_file
+
+    # A disabled script is identified by its relative path. The existing
+    # runtime is copied first to preserve user state, so an active copy from
+    # the package must not shadow that disabled state during the merge.
+    while IFS= read -r -d '' disabled_file; do
+        case "$disabled_file" in
+            *.lua|*.fwl|*.lua64|*.lua32) ;;
+            *) continue ;;
+        esac
+
+        relative_path="${disabled_file#"$disabled_root"/}"
+        active_file="$active_root/$relative_path"
+        if [ -f "$active_file" ]; then
+            rm -f "$active_file"
+            echo "Preserving disabled script state: $relative_path"
+        fi
+    done < <(find "$disabled_root" -type f -print0)
+}
+
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
 # Build a complete staged runtime from the existing installation. This keeps
@@ -216,6 +241,7 @@ if [ "$DEPLOY_TO_XPLANE" = "1" ]; then
     merge_tree "$PACKAGE_ROOT/Modules" "$RUNTIME_STAGE_DIR/Modules"
     merge_tree "$PACKAGE_ROOT/Scripts" "$RUNTIME_STAGE_DIR/Scripts"
     merge_tree "$PACKAGE_ROOT/Scripts (disabled)" "$RUNTIME_STAGE_DIR/Scripts (disabled)"
+    preserve_disabled_script_state "$RUNTIME_STAGE_DIR/Scripts" "$RUNTIME_STAGE_DIR/Scripts (disabled)"
     merge_tree "$PACKAGE_ROOT/Scripts (Quarantine)" "$RUNTIME_STAGE_DIR/Scripts (Quarantine)"
 
     for runtime_file in fwl_prefs.ini user.ini user.exit; do

@@ -12,6 +12,7 @@
 #include "hidapi/hidapi.h"
 #include "Native3jFPS12/ThreeJFPSNative.h"
 #include "Graphics/PanelGraphicsBackend.h"
+#include "Graphics/PanelGraphicsLua.h"
 #include "third_party/iniReader/inireader.h"
 #ifdef __APPLE__
 #include <OpenGL/gl.h>
@@ -31,6 +32,7 @@
 #include <dirent.h>
 #include <memory>
 #include <sstream>
+#include <array>
 #include <sys/stat.h>
 #include <cerrno>
 #include <unordered_map>
@@ -65,10 +67,15 @@ static bool gMacroMenuNeedsRefresh = false;
 struct FlyWithLuaScriptFailure {
     std::string fileName;
     std::string message;
+    std::string callback;
+    std::string phase;
+    std::string state;
+    std::string backend;
 };
 struct FlyWithLuaScriptMenuEntry {
     std::string relativePath;
     bool enabled = false;
+    bool conflict = false;
     int menuItemIndex = -1;
 };
 struct FlyWithLuaScriptMenuGroup {
@@ -106,6 +113,19 @@ struct FlyWithLuaPositiveEdgeFlip {
     double onDouble = 1.0;
     bool lastPressed = false;
 };
+enum class LuaCallbackKind : std::size_t {
+    Draw = 0,
+    CompatPanelDraw,
+    PanelDraw,
+    EveryFrame,
+    Often,
+    Sometimes,
+    OnExit,
+    MouseClick,
+    MouseWheel,
+    Count,
+};
+
 struct LuaCallbackEntries {
     std::string source;
     int chunkRef = LUA_NOREF;
@@ -115,12 +135,29 @@ struct LuaCallbackEntries {
     bool empty() const { return source.empty(); }
 };
 
+struct LuaScriptCallbacks {
+    std::array<LuaCallbackEntries, static_cast<std::size_t>(LuaCallbackKind::Count)> entries;
+
+    LuaCallbackEntries& forKind(LuaCallbackKind kind) {
+        return entries[static_cast<std::size_t>(kind)];
+    }
+};
+
+struct LuaScriptRecord {
+    flywithlua::LuaScriptId id = flywithlua::kSystemLuaScriptId;
+    std::string fileName;
+    bool loaded = false;
+    bool quarantined = false;
+    bool errorReported = false;
+};
+
 static std::vector<FlyWithLuaPositiveEdgeFlip> gPositiveEdgeFlips;
 static std::vector<int> gJoystickButtonValues;
 static std::vector<hid_device*> gOpenHIDDevices;
 static bool gHIDInitialized = false;
 static constexpr size_t kHIDReportBufferSize = 4096;
 static std::string gDrawCommand;
+static std::string gPanelApiDrawCommand;
 static std::string gEveryFrameCommand;
 static std::string gOftenCommand;
 static std::string gSometimesCommand;
@@ -129,6 +166,7 @@ static std::string gMouseClickCommand;
 static std::string gMouseWheelCommand;
 static LuaCallbackEntries gDrawCallbacks;
 static LuaCallbackEntries gPanelDrawCallbacks;
+static LuaCallbackEntries gPanelApiDrawCallbacks;
 static LuaCallbackEntries gEveryFrameCallbacks;
 static LuaCallbackEntries gOftenCallbacks;
 static LuaCallbackEntries gSometimesCallbacks;
@@ -154,6 +192,14 @@ static int gLoadedScriptCount = 0;
 static int gFailedScriptCount = 0;
 static std::vector<FlyWithLuaScriptFailure> gScriptLoadFailures;
 static bool gLoadingPanelScript = false;
+static bool gUseIsolatedCallbackScope = true;
+static flywithlua::LuaScriptId gCurrentLuaScriptId = flywithlua::kSystemLuaScriptId;
+static bool gCurrentLuaPanelApiAllowed = false;
+static flywithlua::LuaScriptId gNextLuaScriptId = 1;
+static flywithlua::LuaScriptId gLoadingLuaScriptId = flywithlua::kSystemLuaScriptId;
+static std::vector<flywithlua::LuaScriptId> gLuaScriptOrder;
+static std::unordered_map<flywithlua::LuaScriptId, LuaScriptRecord> gLuaScriptRecords;
+static std::unordered_map<flywithlua::LuaScriptId, LuaScriptCallbacks> gLuaScriptCallbacks;
 
 extern "C" void flywithlua_toggle_window(void);
 extern "C" void flywithlua_update_current_altitude(double altitude);
@@ -175,9 +221,19 @@ float FlightLoopCallback(float inElapsedSinceLastCall, float inElapsedTimeSinceL
 int FlyWithLuaDrawCallback(XPLMDrawingPhase inPhase, int inIsBefore, void * inRefcon);
 static void RunLuaStringChunk(const std::string& code, const char* context);
 static void InvalidateAllLuaCallbackChunks();
-static void RunLuaCallbackEntries(LuaCallbackEntries& callbacks, const char* context);
-static bool AppendLuaCallback(lua_State* state, std::string& debugCode, LuaCallbackEntries& callbacks);
+static void RunLuaCallbackEntries(LuaCallbackKind kind, LuaCallbackEntries& legacyCallbacks,
+                                  const char* context);
+static bool AppendLuaCallback(lua_State* state, std::string& debugCode,
+                              LuaCallbackEntries& legacyCallbacks, LuaCallbackKind kind);
 static bool HasEnabledLuaCallbacks(const LuaCallbackEntries& callbacks);
+static bool HasEnabledLuaCallbacks(LuaCallbackKind kind, const LuaCallbackEntries& legacyCallbacks);
+static LuaCallbackEntries& ScriptCallbackEntries(flywithlua::LuaScriptId scriptId,
+                                                  LuaCallbackKind kind);
+static void QuarantineLuaScript(flywithlua::LuaScriptId scriptId,
+                                const char* context,
+                                const std::string& errorMessage);
+static void ResetLuaScriptRegistry();
+static void ConfigureLuaCallbackScope();
 static bool IsBundledPanelScript(const std::string& fileName);
 static void UpdateLuaMouseGlobals();
 static void UpdateMouseEventWindowGeometry();
@@ -999,7 +1055,20 @@ static std::string BuildScriptLoadFailuresJson(const std::vector<FlyWithLuaScrip
             out << ",";
         }
         out << "{\"fileName\":\"" << EscapeJsonString(failures[i].fileName)
-            << "\",\"message\":\"" << EscapeJsonString(failures[i].message) << "\"}";
+            << "\",\"message\":\"" << EscapeJsonString(failures[i].message) << "\"";
+        if (!failures[i].callback.empty()) {
+            out << ",\"callback\":\"" << EscapeJsonString(failures[i].callback) << "\"";
+        }
+        if (!failures[i].phase.empty()) {
+            out << ",\"phase\":\"" << EscapeJsonString(failures[i].phase) << "\"";
+        }
+        if (!failures[i].state.empty()) {
+            out << ",\"state\":\"" << EscapeJsonString(failures[i].state) << "\"";
+        }
+        if (!failures[i].backend.empty()) {
+            out << ",\"backend\":\"" << EscapeJsonString(failures[i].backend) << "\"";
+        }
+        out << "}";
     }
     out << "]";
     return out.str();
@@ -1017,6 +1086,16 @@ static void ReplaceAll(std::string& text, const std::string& from, const std::st
     }
 }
 
+static void ConfigureLuaCallbackScope() {
+    std::string value = getOptionToString("CallbackScope");
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    gUseIsolatedCallbackScope = value != "legacy";
+    XPLMDebugString((std::string("FlyWithLua-Mac: CallbackScope=") +
+                     (gUseIsolatedCallbackScope ? "isolated" : "legacy") + "\n").c_str());
+}
+
 static void RunLuaStringChunk(const std::string& code, const char* context) {
     if (code.empty() || !L || !flywithlua::LuaIsRunning) {
         return;
@@ -1026,12 +1105,18 @@ static void RunLuaStringChunk(const std::string& code, const char* context) {
         const char* luaError = lua_tostring(L, -1);
         std::string errorMessage = luaError ? luaError : "unknown Lua error";
         lua_pop(L, 1);
-        XPLMDebugString((std::string("FlyWithLua-Mac Lua Error (") + context + "): " + errorMessage + "\n").c_str());
+        flywithlua::ReportLuaScriptError(flywithlua::CurrentLuaScriptId(), context, errorMessage);
     }
 }
 
 static void DisableLuaCallbackGroup(LuaCallbackEntries& callbacks, const char* context,
-                                    const std::string& errorMessage) {
+                                    const std::string& errorMessage,
+                                    flywithlua::LuaScriptId ownerScriptId) {
+    if (ownerScriptId != flywithlua::kSystemLuaScriptId) {
+        QuarantineLuaScript(ownerScriptId, context, errorMessage);
+        return;
+    }
+
     callbacks.disabled = true;
     if (callbacks.errorReported) {
         return;
@@ -1044,7 +1129,8 @@ static void DisableLuaCallbackGroup(LuaCallbackEntries& callbacks, const char* c
     XPLMDebugString(message.c_str());
 }
 
-static bool CompileLuaCallbackGroup(LuaCallbackEntries& callbacks, const char* context) {
+static bool CompileLuaCallbackGroup(LuaCallbackEntries& callbacks, const char* context,
+                                    flywithlua::LuaScriptId ownerScriptId) {
     std::string source;
     source.reserve(callbacks.source.size() + 32);
     source.append("return function()\n");
@@ -1055,7 +1141,7 @@ static bool CompileLuaCallbackGroup(LuaCallbackEntries& callbacks, const char* c
         const char* luaError = lua_tostring(L, -1);
         const std::string errorMessage = luaError ? luaError : "unknown Lua error";
         lua_pop(L, 1);
-        DisableLuaCallbackGroup(callbacks, context, errorMessage);
+        DisableLuaCallbackGroup(callbacks, context, errorMessage, ownerScriptId);
         return false;
     }
 
@@ -1063,13 +1149,13 @@ static bool CompileLuaCallbackGroup(LuaCallbackEntries& callbacks, const char* c
         const char* luaError = lua_tostring(L, -1);
         const std::string errorMessage = luaError ? luaError : "unknown Lua error";
         lua_pop(L, 1);
-        DisableLuaCallbackGroup(callbacks, context, errorMessage);
+        DisableLuaCallbackGroup(callbacks, context, errorMessage, ownerScriptId);
         return false;
     }
 
     if (!lua_isfunction(L, -1)) {
         lua_pop(L, 1);
-        DisableLuaCallbackGroup(callbacks, context, "callback group did not compile to a function");
+        DisableLuaCallbackGroup(callbacks, context, "callback group did not compile to a function", ownerScriptId);
         return false;
     }
 
@@ -1090,6 +1176,7 @@ static void InvalidateLuaCallbackEntries(LuaCallbackEntries& callbacks) {
 static void InvalidateAllLuaCallbackChunks() {
     InvalidateLuaCallbackEntries(gDrawCallbacks);
     InvalidateLuaCallbackEntries(gPanelDrawCallbacks);
+    InvalidateLuaCallbackEntries(gPanelApiDrawCallbacks);
     InvalidateLuaCallbackEntries(gEveryFrameCallbacks);
     InvalidateLuaCallbackEntries(gOftenCallbacks);
     InvalidateLuaCallbackEntries(gSometimesCallbacks);
@@ -1098,7 +1185,74 @@ static void InvalidateAllLuaCallbackChunks() {
     InvalidateLuaCallbackEntries(gMouseWheelCallbacks);
 }
 
-static void RunLuaCallbackEntries(LuaCallbackEntries& callbacks, const char* context) {
+static LuaCallbackEntries& ScriptCallbackEntries(flywithlua::LuaScriptId scriptId,
+                                                  LuaCallbackKind kind) {
+    return gLuaScriptCallbacks[scriptId].forKind(kind);
+}
+
+static void QuarantineLuaScript(flywithlua::LuaScriptId scriptId,
+                                const char* context,
+                                const std::string& errorMessage) {
+    if (scriptId == flywithlua::kSystemLuaScriptId) {
+        XPLMDebugString((std::string("FlyWithLua-Mac Lua Error (") + context + "): " +
+                         errorMessage + "\n").c_str());
+        return;
+    }
+
+    auto recordIt = gLuaScriptRecords.find(scriptId);
+    if (recordIt == gLuaScriptRecords.end()) {
+        XPLMDebugString((std::string("FlyWithLua-Mac Lua Error (") + context + "): " +
+                         errorMessage + "\n").c_str());
+        return;
+    }
+    LuaScriptRecord& record = recordIt->second;
+    if (record.quarantined) {
+        return;
+    }
+
+    record.quarantined = true;
+    flywithlua::panel::invalidateLuaResources(scriptId);
+    flwnd::quarantineWindowsOwnedBy(scriptId);
+    auto callbacksIt = gLuaScriptCallbacks.find(scriptId);
+    if (callbacksIt != gLuaScriptCallbacks.end()) {
+        for (LuaCallbackEntries& callbacks : callbacksIt->second.entries) {
+            InvalidateLuaCallbackEntries(callbacks);
+        }
+    }
+
+    if (!record.errorReported) {
+        record.errorReported = true;
+        const std::string message = "FlyWithLua-Mac Lua Error (" + std::string(context) +
+                                    ") in " + record.fileName + ": " + errorMessage +
+                                    "; script quarantined until reload\n";
+        XPLMDebugString(message.c_str());
+        const char* phase = gLoadingLuaScriptId == scriptId ? "load" : "runtime";
+        gScriptLoadFailures.push_back({record.fileName, errorMessage, context, phase,
+                                       "quarantined", flywithlua::panel::enabled() ? "panel" : "opengl"});
+        const std::string failuresJson = BuildScriptLoadFailuresJson(gScriptLoadFailures);
+        flywithlua_update_script_load_summary(gDiscoveredScriptCount, gLoadedScriptCount,
+                                              gFailedScriptCount, failuresJson.c_str());
+    }
+}
+
+static void ResetLuaScriptRegistry() {
+    for (auto& script : gLuaScriptCallbacks) {
+        for (LuaCallbackEntries& callbacks : script.second.entries) {
+            InvalidateLuaCallbackEntries(callbacks);
+        }
+    }
+    gLuaScriptCallbacks.clear();
+    gLuaScriptRecords.clear();
+    gLuaScriptOrder.clear();
+    gNextLuaScriptId = 1;
+    gLoadingLuaScriptId = flywithlua::kSystemLuaScriptId;
+    gCurrentLuaScriptId = flywithlua::kSystemLuaScriptId;
+    gCurrentLuaPanelApiAllowed = false;
+}
+
+static void RunOneLuaCallbackEntries(LuaCallbackEntries& callbacks, const char* context,
+                                     flywithlua::LuaScriptId ownerScriptId,
+                                     bool panelApiAllowed) {
     if (callbacks.empty() || !L || !flywithlua::LuaIsRunning) {
         return;
     }
@@ -1107,10 +1261,17 @@ static void RunLuaCallbackEntries(LuaCallbackEntries& callbacks, const char* con
         return;
     }
 
-    // FlyWithLua defines one lexical block per callback kind. Keep all
-    // registrations in one closure so locals remain visible in registration
-    // order, including registrations originating from different scripts.
-    if (callbacks.chunkRef == LUA_NOREF && !CompileLuaCallbackGroup(callbacks, context)) {
+    // Keep registrations for this owner and callback kind in one closure so
+    // locals remain visible in registration order. In isolated mode the
+    // owner is one script; legacy mode intentionally uses the system owner.
+    if (ownerScriptId != flywithlua::kSystemLuaScriptId &&
+        flywithlua::IsLuaScriptQuarantined(ownerScriptId)) {
+        return;
+    }
+
+    flywithlua::LuaScriptScope scriptScope(ownerScriptId);
+    flywithlua::LuaPanelApiScope panelApiScope(panelApiAllowed);
+    if (callbacks.chunkRef == LUA_NOREF && !CompileLuaCallbackGroup(callbacks, context, ownerScriptId)) {
         return;
     }
 
@@ -1119,11 +1280,37 @@ static void RunLuaCallbackEntries(LuaCallbackEntries& callbacks, const char* con
         const char* luaError = lua_tostring(L, -1);
         const std::string errorMessage = luaError ? luaError : "unknown Lua error";
         lua_pop(L, 1);
-        DisableLuaCallbackGroup(callbacks, context, errorMessage);
+        DisableLuaCallbackGroup(callbacks, context, errorMessage, ownerScriptId);
     }
 }
 
-static bool AppendLuaCallback(lua_State* state, std::string& debugCode, LuaCallbackEntries& callbacks) {
+static void RunLuaCallbackEntries(LuaCallbackKind kind, LuaCallbackEntries& legacyCallbacks,
+                                  const char* context) {
+    // New panel callbacks are owner-scoped even when legacy callback scope is selected.
+    const bool useOwnerScope = gUseIsolatedCallbackScope || kind == LuaCallbackKind::PanelDraw;
+    if (!useOwnerScope) {
+        RunOneLuaCallbackEntries(legacyCallbacks, context, flywithlua::kSystemLuaScriptId, false);
+        return;
+    }
+
+    for (const flywithlua::LuaScriptId scriptId : gLuaScriptOrder) {
+        const auto recordIt = gLuaScriptRecords.find(scriptId);
+        if (recordIt == gLuaScriptRecords.end() || !recordIt->second.loaded ||
+            recordIt->second.quarantined) {
+            continue;
+        }
+        RunOneLuaCallbackEntries(ScriptCallbackEntries(scriptId, kind), context, scriptId,
+                                 kind == LuaCallbackKind::PanelDraw);
+    }
+
+    // API registrations made outside a script load are retained as a system callback.
+    if (!legacyCallbacks.empty()) {
+        RunOneLuaCallbackEntries(legacyCallbacks, context, flywithlua::kSystemLuaScriptId, false);
+    }
+}
+
+static bool AppendLuaCallback(lua_State* state, std::string& debugCode,
+                              LuaCallbackEntries& legacyCallbacks, LuaCallbackKind kind) {
     if (!lua_isstring(state, 1)) {
         return false;
     }
@@ -1134,18 +1321,41 @@ static bool AppendLuaCallback(lua_State* state, std::string& debugCode, LuaCallb
     }
 
     debugCode.append(code).append("\n");
-    callbacks.source.append(code).append("\n");
-    if (L && callbacks.chunkRef != LUA_NOREF) {
-        luaL_unref(L, LUA_REGISTRYINDEX, callbacks.chunkRef);
-        callbacks.chunkRef = LUA_NOREF;
+    LuaCallbackEntries* callbacks = &legacyCallbacks;
+    const bool ownerScoped = gUseIsolatedCallbackScope || kind == LuaCallbackKind::PanelDraw;
+    if (ownerScoped && gCurrentLuaScriptId != flywithlua::kSystemLuaScriptId) {
+        callbacks = &ScriptCallbackEntries(gCurrentLuaScriptId, kind);
     }
-    callbacks.disabled = false;
-    callbacks.errorReported = false;
+    callbacks->source.append(code).append("\n");
+    if (L && callbacks->chunkRef != LUA_NOREF) {
+        luaL_unref(L, LUA_REGISTRYINDEX, callbacks->chunkRef);
+        callbacks->chunkRef = LUA_NOREF;
+    }
+    callbacks->disabled = false;
+    callbacks->errorReported = false;
     return true;
 }
 
 static bool HasEnabledLuaCallbacks(const LuaCallbackEntries& callbacks) {
     return !callbacks.empty() && !callbacks.disabled;
+}
+
+static bool HasEnabledLuaCallbacks(LuaCallbackKind kind, const LuaCallbackEntries& legacyCallbacks) {
+    if (!gUseIsolatedCallbackScope && kind != LuaCallbackKind::PanelDraw) {
+        return HasEnabledLuaCallbacks(legacyCallbacks);
+    }
+    if (HasEnabledLuaCallbacks(legacyCallbacks)) {
+        return true;
+    }
+    for (const flywithlua::LuaScriptId scriptId : gLuaScriptOrder) {
+        const auto recordIt = gLuaScriptRecords.find(scriptId);
+        if (recordIt != gLuaScriptRecords.end() && recordIt->second.loaded &&
+            !recordIt->second.quarantined &&
+            HasEnabledLuaCallbacks(ScriptCallbackEntries(scriptId, kind))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool AdvanceLuaTimer(float& accumulator, float elapsedSeconds, float intervalSeconds) {
@@ -1223,14 +1433,17 @@ static void MouseEventWindowDraw(XPLMWindowID inWindowID, void* /*inRefcon*/) {
         return;
     }
 
-    if (gMouseEventWindowPanelGraphics && flywithlua::panel::enabled() &&
-        flywithlua::panel::beginPanelWindow(inWindowID)) {
+    if (gMouseEventWindowPanelGraphics && flywithlua::panel::enabled()) {
+        flywithlua::panel::PanelDrawScope panelScope(inWindowID);
+        if (!panelScope.active()) {
+            return;
+        }
         UpdateLuaMouseGlobals();
-        flywithlua::WeAreNotInDrawingState = false;
-        RunLuaCallbackEntries(gPanelDrawCallbacks, "do_every_draw[panel]");
+        RunLuaCallbackEntries(LuaCallbackKind::CompatPanelDraw, gPanelDrawCallbacks,
+                              "do_every_draw[panel]");
+        RunLuaCallbackEntries(LuaCallbackKind::PanelDraw, gPanelApiDrawCallbacks,
+                              "do_every_panel_draw");
         threejfps_draw_hud();
-        flywithlua::WeAreNotInDrawingState = true;
-        flywithlua::panel::endPanelWindow();
         return;
     }
 
@@ -1265,7 +1478,7 @@ static int MouseEventWindowClick(XPLMWindowID /*inWindowID*/, int x, int y,
     lua_pushstring(L, mouseStatus);
     lua_setglobal(L, "MOUSE_STATUS");
 
-    RunLuaCallbackEntries(gMouseClickCallbacks, "do_on_mouse_click");
+    RunLuaCallbackEntries(LuaCallbackKind::MouseClick, gMouseClickCallbacks, "do_on_mouse_click");
     const bool resumeClick = LuaGlobalBoolean("RESUME_MOUSE_CLICK");
     if (inMouse == xplm_MouseDown) {
         gMouseClickCaptured = resumeClick;
@@ -1301,7 +1514,7 @@ static int MouseEventWindowWheel(XPLMWindowID /*inWindowID*/, int x, int y, int 
     lua_pushinteger(L, clicks);
     lua_setglobal(L, "MOUSE_WHEEL_CLICKS");
 
-    RunLuaCallbackEntries(gMouseWheelCallbacks, "do_on_mouse_wheel");
+    RunLuaCallbackEntries(LuaCallbackKind::MouseWheel, gMouseWheelCallbacks, "do_on_mouse_wheel");
     return LuaGlobalBoolean("RESUME_MOUSE_WHEEL") ? 1 : 0;
 }
 
@@ -1386,7 +1599,10 @@ static bool CreateMouseEventWindow() {
         XPLMDebugString("FlyWithLua-Mac Warning: Could not create the mouse event window.\n");
         return false;
     }
-    gMouseEventWindowPanelGraphics = requestedPanel;
+    gMouseEventWindowPanelGraphics = requestedPanel && flywithlua::panel::enabled();
+    if (gMouseEventWindowPanelGraphics) {
+        flywithlua::panel::registerWindow(gMouseEventWindow);
+    }
 
     gMouseEventWindowLeft = left;
     gMouseEventWindowTop = top;
@@ -1398,6 +1614,7 @@ static bool CreateMouseEventWindow() {
 
 static void DestroyMouseEventWindow() {
     if (gMouseEventWindow) {
+        flywithlua::panel::unregisterWindow(gMouseEventWindow);
         XPLMDestroyWindow(gMouseEventWindow);
         gMouseEventWindow = nullptr;
     }
@@ -1416,7 +1633,9 @@ static bool LuaGraphicsCallAllowed(const char* functionName) {
         std::string("FlyWithLua Error: ") + functionName +
             " cannot be executed outside a drawing loopback. Put the function call inside the do_every_draw() string argument to solve this issue."
     );
-    flywithlua::LuaIsRunning = false;
+    flywithlua::ReportLuaScriptError(
+        flywithlua::CurrentLuaScriptId(), functionName,
+        "graphics API called outside a drawing callback");
     return false;
 }
 
@@ -1427,7 +1646,9 @@ static bool LuaGraphicsHasNumbers(lua_State* state, int firstIndex, int count, c
                 logToDevCon,
                 std::string("FlyWithLua Error: Wrong arguments to function ") + functionName + "."
             );
-            flywithlua::LuaIsRunning = false;
+            flywithlua::ReportLuaScriptError(
+                flywithlua::CurrentLuaScriptId(), functionName,
+                "wrong numeric arguments");
             return false;
         }
     }
@@ -1478,7 +1699,12 @@ static int LuaGLBegin(lua_State* state, GLenum mode, const char* functionName) {
     }
 
     if (flywithlua::panel::panelDrawing()) {
-        flywithlua::panel::beginPrimitive(PanelPrimitiveMode(mode));
+        if (!flywithlua::panel::beginPrimitive(PanelPrimitiveMode(mode),
+                                               flywithlua::panel::PrimitiveSource::Legacy)) {
+            flywithlua::ReportLuaScriptError(flywithlua::CurrentLuaScriptId(),
+                                             functionName,
+                                             "cannot mix panel and legacy primitives");
+        }
     } else {
         glBegin(mode);
     }
@@ -1531,7 +1757,10 @@ static int LuaGLEnd(lua_State* state) {
     }
 
     if (flywithlua::panel::panelDrawing()) {
-        flywithlua::panel::endPrimitive();
+        if (!flywithlua::panel::endPrimitive(flywithlua::panel::PrimitiveSource::Legacy)) {
+            flywithlua::ReportLuaScriptError(flywithlua::CurrentLuaScriptId(),
+                                             "glEnd()", "legacy primitive is not active");
+        }
     } else {
         glEnd();
     }
@@ -1547,7 +1776,11 @@ static int LuaGLVertex2f(lua_State* state) {
     const float x = static_cast<float>(lua_tonumber(state, 1));
     const float y = static_cast<float>(lua_tonumber(state, 2));
     if (flywithlua::panel::panelDrawing()) {
-        flywithlua::panel::vertex(x, y);
+        if (!flywithlua::panel::vertex(x, y, flywithlua::panel::PrimitiveSource::Legacy)) {
+            flywithlua::ReportLuaScriptError(flywithlua::CurrentLuaScriptId(),
+                                             "glVertex2f()",
+                                             "cannot mix panel and legacy primitives");
+        }
     } else {
         glVertex2f(x, y);
     }
@@ -1563,7 +1796,11 @@ static int LuaGLVertex3f(lua_State* state) {
     const float x = static_cast<float>(lua_tonumber(state, 1));
     const float y = static_cast<float>(lua_tonumber(state, 2));
     if (flywithlua::panel::panelDrawing()) {
-        flywithlua::panel::vertex(x, y);
+        if (!flywithlua::panel::vertex(x, y, flywithlua::panel::PrimitiveSource::Legacy)) {
+            flywithlua::ReportLuaScriptError(flywithlua::CurrentLuaScriptId(),
+                                             "glVertex3f()",
+                                             "cannot mix panel and legacy primitives");
+        }
     } else {
         glVertex3f(x, y, static_cast<float>(lua_tonumber(state, 3)));
     }
@@ -1843,14 +2080,23 @@ static void RefreshFlyWithLuaScriptsMenu() {
     struct ScriptPathState {
         std::string path;
         bool enabled;
+        bool conflict;
     };
     std::vector<ScriptPathState> scripts;
     scripts.reserve(enabledFiles.size() + disabledFiles.size());
+    std::unordered_map<std::string, size_t> scriptIndexes;
     for (const std::string& fileName : enabledFiles) {
-        scripts.push_back({fileName, true});
+        scriptIndexes[fileName] = scripts.size();
+        scripts.push_back({fileName, true, false});
     }
     for (const std::string& fileName : disabledFiles) {
-        scripts.push_back({fileName, false});
+        const auto existing = scriptIndexes.find(fileName);
+        if (existing != scriptIndexes.end()) {
+            scripts[existing->second].conflict = true;
+            continue;
+        }
+        scriptIndexes[fileName] = scripts.size();
+        scripts.push_back({fileName, false, false});
     }
 
     std::sort(scripts.begin(), scripts.end(), [](const ScriptPathState& lhs, const ScriptPathState& rhs) {
@@ -1914,12 +2160,16 @@ static void RefreshFlyWithLuaScriptsMenu() {
         auto entry = std::make_unique<FlyWithLuaScriptMenuEntry>();
         entry->relativePath = script.path;
         entry->enabled = script.enabled;
+        entry->conflict = script.conflict;
         FlyWithLuaScriptMenuEntry* entryPointer = entry.get();
         std::string label = entry->relativePath;
-        if (!entry->enabled) {
+        if (entry->conflict) {
+            label += FlyWithLuaLocalizedText(" [conflict]", " [競合]");
+        } else if (!entry->enabled) {
             label += FlyWithLuaLocalizedText(" [disabled]", " [無効]");
         }
-        entry->menuItemIndex = XPLMAppendMenuItem(group->menu, label.c_str(), entryPointer, 1);
+        entry->menuItemIndex = XPLMAppendMenuItem(group->menu, label.c_str(), entryPointer,
+                                                  entry->conflict ? 0 : 1);
         if (entry->menuItemIndex >= 0) {
             XPLMCheckMenuItem(group->menu, entry->menuItemIndex,
                               entry->enabled ? xplm_Menu_Checked : xplm_Menu_Unchecked);
@@ -2706,37 +2956,44 @@ static void PollPositiveEdgeFlips() {
 
 static int LuaDoEveryDrawCallback(lua_State* state) {
     AppendLuaCallback(state, gDrawCommand,
-                      gLoadingPanelScript ? gPanelDrawCallbacks : gDrawCallbacks);
+                      gLoadingPanelScript ? gPanelDrawCallbacks : gDrawCallbacks,
+                      gLoadingPanelScript ? LuaCallbackKind::CompatPanelDraw : LuaCallbackKind::Draw);
+    return 0;
+}
+
+static int LuaDoEveryPanelDrawCallback(lua_State* state) {
+    AppendLuaCallback(state, gPanelApiDrawCommand, gPanelApiDrawCallbacks,
+                      LuaCallbackKind::PanelDraw);
     return 0;
 }
 
 static int LuaDoEveryFrameCallback(lua_State* state) {
-    AppendLuaCallback(state, gEveryFrameCommand, gEveryFrameCallbacks);
+    AppendLuaCallback(state, gEveryFrameCommand, gEveryFrameCallbacks, LuaCallbackKind::EveryFrame);
     return 0;
 }
 
 static int LuaDoOftenCallback(lua_State* state) {
-    AppendLuaCallback(state, gOftenCommand, gOftenCallbacks);
+    AppendLuaCallback(state, gOftenCommand, gOftenCallbacks, LuaCallbackKind::Often);
     return 0;
 }
 
 static int LuaDoSometimesCallback(lua_State* state) {
-    AppendLuaCallback(state, gSometimesCommand, gSometimesCallbacks);
+    AppendLuaCallback(state, gSometimesCommand, gSometimesCallbacks, LuaCallbackKind::Sometimes);
     return 0;
 }
 
 static int LuaDoOnExitCallback(lua_State* state) {
-    AppendLuaCallback(state, gOnExitCommand, gOnExitCallbacks);
+    AppendLuaCallback(state, gOnExitCommand, gOnExitCallbacks, LuaCallbackKind::OnExit);
     return 0;
 }
 
 static int LuaDoOnMouseClickCallback(lua_State* state) {
-    AppendLuaCallback(state, gMouseClickCommand, gMouseClickCallbacks);
+    AppendLuaCallback(state, gMouseClickCommand, gMouseClickCallbacks, LuaCallbackKind::MouseClick);
     return 0;
 }
 
 static int LuaDoOnMouseWheelCallback(lua_State* state) {
-    AppendLuaCallback(state, gMouseWheelCommand, gMouseWheelCallbacks);
+    AppendLuaCallback(state, gMouseWheelCommand, gMouseWheelCallbacks, LuaCallbackKind::MouseWheel);
     return 0;
 }
 
@@ -2769,6 +3026,7 @@ static void RegisterFlyWithLuaCompatibilityFunctions(lua_State* state) {
     lua_register(state, "deactivate_macro", LuaDeactivateMacro);
     lua_register(state, "create_positive_edge_flip", LuaCreatePositiveEdgeFlip);
     lua_register(state, "do_every_draw", LuaDoEveryDrawCallback);
+    lua_register(state, "do_every_panel_draw", LuaDoEveryPanelDrawCallback);
     lua_register(state, "do_every_frame", LuaDoEveryFrameCallback);
     lua_register(state, "do_often", LuaDoOftenCallback);
     lua_register(state, "do_sometimes", LuaDoSometimesCallback);
@@ -2799,8 +3057,10 @@ static void ResetLuaRuntimeState() {
     ShutdownHID();
     gPositiveEdgeFlips.clear();
     gJoystickButtonValues.clear();
+    flywithlua::panel::invalidateLuaResources();
     if (L) {
         InvalidateAllLuaCallbackChunks();
+        ResetLuaScriptRegistry();
         ClearFlyWithLuaCommands();
         lua_close(L);
     }
@@ -2809,6 +3069,7 @@ static void ResetLuaRuntimeState() {
     flywithlua::FWLLua = nullptr;
     flywithlua::LuaIsRunning = false;
     gDrawCommand.clear();
+    gPanelApiDrawCommand.clear();
     gEveryFrameCommand.clear();
     gOftenCommand.clear();
     gSometimesCommand.clear();
@@ -2833,12 +3094,14 @@ extern "C" void flywithlua_reload_scripts(void) {
     flywithlua_update_last_log_message("Reloading scripts...");
     flywithlua_update_script_load_summary(0, 0, 0, "[]");
 
-    RunLuaCallbackEntries(gOnExitCallbacks, "do_on_exit");
+    RunLuaCallbackEntries(LuaCallbackKind::OnExit, gOnExitCallbacks, "do_on_exit");
+    DestroyMouseEventWindow();
     flwnd::deinitFloatingWindowSupport();
     // Keep X-Plane-owned FMOD channel groups alive across a Lua reload. Only
     // sounds created by the old Lua state need to be released here.
     fmodint::deinitFmodSupport();
     ResetLuaRuntimeState();
+    flywithlua::panel::shutdown();
 
     if (!InitializeLuaRuntime(false)) {
         XPLMDebugString("FlyWithLua-Mac Warning: Script reload failed.\n");
@@ -2846,6 +3109,7 @@ extern "C" void flywithlua_reload_scripts(void) {
         return;
     }
 
+    CreateMouseEventWindow();
     flywithlua::LuaIsRunning = true;
     XPLMDebugString("FlyWithLua-Mac: Scripts reloaded.\n");
     flywithlua_update_last_log_message("Scripts reloaded");
@@ -2882,6 +3146,7 @@ static bool InitializeLuaRuntime(bool registerFlightLoop) {
     // These functions must exist before the embedded init script defines its
     // dataref helpers and before any user script is loaded.
     RegisterFlyWithLuaCompatibilityFunctions(L);
+    flywithlua::panel::registerLuaFunctions(L);
     flywithlua::FWLLua = L;
     flywithlua::LuaIsRunning = true;
     lState = L;
@@ -3302,6 +3567,7 @@ DataRef = dataref
     fmodint::RegisterFmodFunctionsToLua(L);
 
     flywithlua::process_read_ini_file();
+    ConfigureLuaCallbackScope();
     flywithlua::panel::configureBackend(getOptionToString("DrawBackend"));
     flywithlua::panel::initialize();
 
@@ -3335,9 +3601,48 @@ namespace flywithlua {
         XPLMDebugString(("FlyWithLua: " + message + "\n").c_str());
     }
 
+    LuaScriptId CurrentLuaScriptId() {
+        return gCurrentLuaScriptId;
+    }
+
+    bool IsLuaPanelApiAllowed() {
+        return gCurrentLuaPanelApiAllowed;
+    }
+
+    bool IsLuaScriptQuarantined(LuaScriptId scriptId) {
+        if (scriptId == kSystemLuaScriptId) {
+            return false;
+        }
+        const auto found = gLuaScriptRecords.find(scriptId);
+        return found != gLuaScriptRecords.end() && found->second.quarantined;
+    }
+
+    LuaScriptScope::LuaScriptScope(LuaScriptId scriptId):
+        previousScriptId_(gCurrentLuaScriptId) {
+        gCurrentLuaScriptId = scriptId;
+    }
+
+    LuaScriptScope::~LuaScriptScope() {
+        gCurrentLuaScriptId = previousScriptId_;
+    }
+
+    LuaPanelApiScope::LuaPanelApiScope(bool allowed):
+        previousAllowed_(gCurrentLuaPanelApiAllowed) {
+        gCurrentLuaPanelApiAllowed = allowed;
+    }
+
+    LuaPanelApiScope::~LuaPanelApiScope() {
+        gCurrentLuaPanelApiAllowed = previousAllowed_;
+    }
+
+    void ReportLuaScriptError(LuaScriptId scriptId, const char* context,
+                              const std::string& message) {
+        QuarantineLuaScript(scriptId, context != nullptr ? context : "lua", message);
+    }
+
     void panic(const std::string& message) {
         logMsg(logToAll, "PANIC: " + message);
-        LuaIsRunning = false;
+        ReportLuaScriptError(CurrentLuaScriptId(), "panic", message);
     }
 
     void CopyDataRefsToLua(void) {
@@ -3359,6 +3664,8 @@ namespace flywithlua {
         std::vector<FlyWithLuaScriptFailure> failures;
 
         std::vector<std::string> fileNames;
+        InvalidateAllLuaCallbackChunks();
+        ResetLuaScriptRegistry();
         gScriptLoadFailures.clear();
         gDiscoveredScriptCount = 0;
         gLoadedScriptCount = 0;
@@ -3385,20 +3692,47 @@ namespace flywithlua {
         for (const std::string& fileName : fileNames) {
             std::string fullPath = JoinPath(scriptDir, fileName);
             logMsg(logToDevCon, "Loading script: " + fileName);
+            const flywithlua::LuaScriptId scriptId = gNextLuaScriptId++;
+            gLuaScriptOrder.push_back(scriptId);
+            gLuaScriptRecords.emplace(scriptId, LuaScriptRecord{scriptId, fileName, false, false, false});
             gLoadingPanelScript = IsBundledPanelScript(fileName);
-            if (luaL_dofile(FWLLua, fullPath.c_str())) {
-                const char* luaError = lua_tostring(FWLLua, -1);
-                std::string errorMessage = luaError ? luaError : "Unknown Lua error";
-                logMsg(logToDevCon, "Error loading " + fileName + ": " + errorMessage);
-                lua_pop(FWLLua, 1);
-                failures.push_back({fileName, errorMessage});
-                ++failedScripts;
-            } else {
-                ++loadedScripts;
+            gLoadingLuaScriptId = scriptId;
+            {
+                flywithlua::LuaScriptScope scriptScope(scriptId);
+                if (luaL_dofile(FWLLua, fullPath.c_str())) {
+                    const char* luaError = lua_tostring(FWLLua, -1);
+                    std::string errorMessage = luaError ? luaError : "Unknown Lua error";
+                    logMsg(logToDevCon, "Error loading " + fileName + ": " + errorMessage);
+                    lua_pop(FWLLua, 1);
+                    auto& record = gLuaScriptRecords.at(scriptId);
+                    record.quarantined = true;
+                    record.errorReported = true;
+                    flywithlua::panel::invalidateLuaResources(scriptId);
+                    flwnd::quarantineWindowsOwnedBy(scriptId);
+                    const auto callbacksIt = gLuaScriptCallbacks.find(scriptId);
+                    if (callbacksIt != gLuaScriptCallbacks.end()) {
+                        for (LuaCallbackEntries& callbacks : callbacksIt->second.entries) {
+                            InvalidateLuaCallbackEntries(callbacks);
+                        }
+                    }
+                    failures.push_back({fileName, errorMessage, {}, "load", "quarantined",
+                                        flywithlua::panel::enabled() ? "panel" : "opengl"});
+                    ++failedScripts;
+                } else {
+                    auto& record = gLuaScriptRecords.at(scriptId);
+                    if (record.quarantined) {
+                        ++failedScripts;
+                    } else {
+                        record.loaded = true;
+                        ++loadedScripts;
+                    }
+                }
             }
+            gLoadingLuaScriptId = flywithlua::kSystemLuaScriptId;
             gLoadingPanelScript = false;
         }
 
+        failures.insert(failures.end(), gScriptLoadFailures.begin(), gScriptLoadFailures.end());
         gLoadedScriptCount = loadedScripts;
         gFailedScriptCount = failedScripts;
         gScriptLoadFailures = failures;
@@ -3425,14 +3759,14 @@ float FlightLoopCallback(float inElapsedSinceLastCall, float inElapsedTimeSinceL
     flwnd::onFlightLoop();
     PollPositiveEdgeFlips();
 
-    RunLuaCallbackEntries(gEveryFrameCallbacks, "do_every_frame");
+    RunLuaCallbackEntries(LuaCallbackKind::EveryFrame, gEveryFrameCallbacks, "do_every_frame");
 
     if (AdvanceLuaTimer(gOftenAccumulator, inElapsedSinceLastCall, kOftenIntervalSeconds)) {
-        RunLuaCallbackEntries(gOftenCallbacks, "do_often");
+        RunLuaCallbackEntries(LuaCallbackKind::Often, gOftenCallbacks, "do_often");
     }
 
     if (AdvanceLuaTimer(gSometimesAccumulator, inElapsedSinceLastCall, kSometimesIntervalSeconds)) {
-        RunLuaCallbackEntries(gSometimesCallbacks, "do_sometimes");
+        RunLuaCallbackEntries(LuaCallbackKind::Sometimes, gSometimesCallbacks, "do_sometimes");
     }
 
     if (gAltitudeDataRef && AdvanceLuaTimer(gAltitudeAccumulator, inElapsedSinceLastCall,
@@ -3452,9 +3786,10 @@ int FlyWithLuaDrawCallback(XPLMDrawingPhase /*inPhase*/, int /*inIsBefore*/, voi
         return 1;
     }
 
-    const bool runLegacyGroup = HasEnabledLuaCallbacks(gDrawCallbacks);
+    const bool runLegacyGroup = HasEnabledLuaCallbacks(LuaCallbackKind::Draw, gDrawCallbacks);
     const bool runPanelFallbackGroup = !flywithlua::panel::enabled() &&
-                                       HasEnabledLuaCallbacks(gPanelDrawCallbacks);
+                                       HasEnabledLuaCallbacks(LuaCallbackKind::CompatPanelDraw,
+                                                              gPanelDrawCallbacks);
     if (!runLegacyGroup && !runPanelFallbackGroup) {
         return 1;
     }
@@ -3465,10 +3800,11 @@ int FlyWithLuaDrawCallback(XPLMDrawingPhase /*inPhase*/, int /*inIsBefore*/, voi
     XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
     flywithlua::WeAreNotInDrawingState = false;
     if (runLegacyGroup) {
-        RunLuaCallbackEntries(gDrawCallbacks, "do_every_draw");
+        RunLuaCallbackEntries(LuaCallbackKind::Draw, gDrawCallbacks, "do_every_draw");
     }
     if (runPanelFallbackGroup) {
-        RunLuaCallbackEntries(gPanelDrawCallbacks, "do_every_draw[panel-fallback]");
+        RunLuaCallbackEntries(LuaCallbackKind::CompatPanelDraw, gPanelDrawCallbacks,
+                              "do_every_draw[panel-fallback]");
     }
     flywithlua::WeAreNotInDrawingState = true;
     return 1;
@@ -3514,9 +3850,10 @@ PLUGIN_API void XPluginStop(void) {
     if (L) {
         XPLMUnregisterFlightLoopCallback(FlightLoopCallback, nullptr);
         XPLMUnregisterDrawCallback(FlyWithLuaDrawCallback, xplm_Phase_Window, 0, (void*) "FlyWithLua-MacScriptDraw");
-        RunLuaCallbackEntries(gOnExitCallbacks, "do_on_exit");
+        RunLuaCallbackEntries(LuaCallbackKind::OnExit, gOnExitCallbacks, "do_on_exit");
         
         flwnd::deinitFloatingWindowSupport();
+        flywithlua::panel::invalidateLuaResources();
         flywithlua::panel::shutdown();
         fmodint::fmod_uninitialize();
         UnregisterFlyWithLuaMenu();

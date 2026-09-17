@@ -82,6 +82,7 @@
 		CA4DB9885EB91F2D0D461D1F /* reference.css in Resources */ = {isa = PBXBuildFile; fileRef = 7914AFC1E8AEE13AA9BD936B /* reference.css */; };
 		CA9A4141AFEFF60DE4B3180C /* mime.c in Sources */ = {isa = PBXBuildFile; fileRef = C78799CCF786A0B41598AF5D /* mime.c */; };
 		CA9EA31641DF9BD2E26AC059 /* libfmodstudio.so.13.10 in Resources */ = {isa = PBXBuildFile; fileRef = 89BA172AC282B498429D69FB /* libfmodstudio.so.13.10 */; };
+		CAB786D052D409AEF9560C65 /* PanelGraphicsLua.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94AB6DD9FFD0BD6168D4DE17 /* PanelGraphicsLua.cpp */; };
 		CB696D923BA355BF8FC9EFDB /* gem.c in Sources */ = {isa = PBXBuildFile; fileRef = F1153EBD40B8A47DCE799686 /* gem.c */; };
 		CCCAEC853A493FBD221FBCB7 /* parse_blocks.pl in Resources */ = {isa = PBXBuildFile; fileRef = 494FE09444EF862E67CC4545 /* parse_blocks.pl */; };
 		CD0D3D896B7AEDFF50FBC662 /* ThreeJFPSUIState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62CA8009B37BA36E97446876 /* ThreeJFPSUIState.swift */; };
@@ -250,6 +251,7 @@
 		90D124C06614810AC1AB473D /* gt.b64 */ = {isa = PBXFileReference; path = gt.b64; sourceTree = "<group>"; };
 		93FFD3CBE07A32B761868E8A /* fmod4xpchannelgroup.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = fmod4xpchannelgroup.h; sourceTree = "<group>"; };
 		948157E36BF494C9550BB5C4 /* request-uri */ = {isa = PBXFileReference; path = "request-uri"; sourceTree = "<group>"; };
+		94AB6DD9FFD0BD6168D4DE17 /* PanelGraphicsLua.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = PanelGraphicsLua.cpp; sourceTree = "<group>"; };
 		984D3B070052AE2EE1D97715 /* XPLMUtilities+Swift.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XPLMUtilities+Swift.swift"; sourceTree = "<group>"; };
 		9A36A1368CA4396E26BE8810 /* x-plane-luajit.patch */ = {isa = PBXFileReference; path = "x-plane-luajit.patch"; sourceTree = "<group>"; };
 		9A9D3DBCDAE76B0999E7488C /* luasocket-3.0rc2-1.rockspec */ = {isa = PBXFileReference; path = "luasocket-3.0rc2-1.rockspec"; sourceTree = "<group>"; };
@@ -344,6 +346,7 @@
 		F2F0007BB4A39215377F2B14 /* libfmod.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libfmod.dylib; sourceTree = "<group>"; };
 		F4C3AAF9A56314DF5C69DA05 /* linux.cmd */ = {isa = PBXFileReference; path = linux.cmd; sourceTree = "<group>"; };
 		F4C41D7BADCB66432836D3CA /* XPStandardWidgets.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPStandardWidgets.h; sourceTree = "<group>"; };
+		F4C56D50523B7721788A90DA /* PanelGraphicsLua.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PanelGraphicsLua.h; sourceTree = "<group>"; };
 		F50641A47BC16514B5D4C9E3 /* imgui_demo.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = imgui_demo.cpp; sourceTree = "<group>"; };
 		F59EAC2656114B2067DC1775 /* XPLMUtilities.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XPLMUtilities.h; sourceTree = "<group>"; };
 		FA4F531F2CBBA574871CD49D /* PanelGraphicsBackend.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = PanelGraphicsBackend.cpp; sourceTree = "<group>"; };
@@ -773,6 +776,8 @@
 			children = (
 				FA4F531F2CBBA574871CD49D /* PanelGraphicsBackend.cpp */,
 				CBB319952F18273B022560C2 /* PanelGraphicsBackend.h */,
+				94AB6DD9FFD0BD6168D4DE17 /* PanelGraphicsLua.cpp */,
+				F4C56D50523B7721788A90DA /* PanelGraphicsLua.h */,
 			);
 			path = Graphics;
 			sourceTree = "<group>";
@@ -1144,6 +1149,7 @@
 				0DB96DEF3C25F554F90A8F33 /* MetalEngine.swift in Sources */,
 				01663215E05D322AE5BC8A82 /* MetalTextureBridge.swift in Sources */,
 				996D2B7E0DBE1BFBBCCE5E03 /* PanelGraphicsBackend.cpp in Sources */,
+				CAB786D052D409AEF9560C65 /* PanelGraphicsLua.cpp in Sources */,
 				E8FAA226961185D4E1270CB9 /* PluginConfigActor.swift in Sources */,
 				9ECDF88592039FA71A9347C2 /* Shaders.metal in Sources */,
 				D38CE0595C7D4CC1868F1414 /* ThreeJFPSControllerCore.cpp in Sources */,

@@ -1,6 +1,7 @@
 #include "PanelGraphicsBackend.h"
 
 #include "XPLMUtilities.h"
+#include "../FlyWithLua.h"
 
 #include <algorithm>
 #include <array>
@@ -10,6 +11,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <sstream>
+#include <unordered_map>
 #include <unistd.h>
 
 namespace flywithlua::panel {
@@ -35,22 +37,83 @@ struct PanelAPI {
     decltype(&XPLMDrawCalls) drawCalls = nullptr;
 };
 
+struct WindowState {
+    std::uint64_t generation = 0;
+    float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    float lineWidth = 1.0f;
+    LegacyPrimitiveMode primitiveMode = LegacyPrimitiveMode::Lines;
+    bool primitiveActive = false;
+    PrimitiveSource primitiveSource = PrimitiveSource::Legacy;
+    std::vector<XPLMVertex_t> vertices;
+};
+
 struct State {
     BackendPreference preference = BackendPreference::Auto;
     bool initialized = false;
     bool panelEnabled = false;
+    std::uint32_t capabilityMask = CapabilityNone;
     bool drawing = false;
     bool failureLogged = false;
+    XPLMWindowID activeWindow = nullptr;
+    std::uint64_t activeWindowGeneration = 0;
+    std::uint64_t nextWindowGeneration = 1;
+    std::unordered_map<XPLMWindowID, WindowState> windowStates;
     PanelAPI api;
     std::array<XPLMFontHandle, 4> fonts = {nullptr, nullptr, nullptr, nullptr};
     std::array<bool, 4> fontAttempted = {false, false, false, false};
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
     float lineWidth = 1.0f;
     LegacyPrimitiveMode primitiveMode = LegacyPrimitiveMode::Lines;
+    bool primitiveActive = false;
+    PrimitiveSource primitiveSource = PrimitiveSource::Legacy;
     std::vector<XPLMVertex_t> vertices;
 };
 
 State gState;
+
+void saveActiveWindowState() {
+    if (gState.activeWindow == nullptr) {
+        return;
+    }
+
+    const auto found = gState.windowStates.find(gState.activeWindow);
+    if (found == gState.windowStates.end() ||
+        found->second.generation != gState.activeWindowGeneration) {
+        return;
+    }
+
+    WindowState& windowState = found->second;
+    std::copy(std::begin(gState.color), std::end(gState.color), std::begin(windowState.color));
+    windowState.lineWidth = gState.lineWidth;
+    windowState.primitiveMode = gState.primitiveMode;
+    windowState.primitiveActive = gState.primitiveActive;
+    windowState.primitiveSource = gState.primitiveSource;
+    windowState.vertices = gState.vertices;
+}
+
+void loadWindowState(XPLMWindowID window) {
+    const auto found = gState.windowStates.find(window);
+    if (found == gState.windowStates.end()) {
+        gState.color[0] = 1.0f;
+        gState.color[1] = 1.0f;
+        gState.color[2] = 1.0f;
+        gState.color[3] = 1.0f;
+        gState.lineWidth = 1.0f;
+        gState.primitiveMode = LegacyPrimitiveMode::Lines;
+        gState.primitiveActive = false;
+        gState.primitiveSource = PrimitiveSource::Legacy;
+        gState.vertices.clear();
+        return;
+    }
+
+    const WindowState& windowState = found->second;
+    std::copy(std::begin(windowState.color), std::end(windowState.color), std::begin(gState.color));
+    gState.lineWidth = windowState.lineWidth;
+    gState.primitiveMode = windowState.primitiveMode;
+    gState.primitiveActive = windowState.primitiveActive;
+    gState.primitiveSource = windowState.primitiveSource;
+    gState.vertices = windowState.vertices;
+}
 
 template <typename T>
 T findSymbol(const char* name) {
@@ -292,11 +355,25 @@ void initialize() {
     const bool textAvailable = gState.api.createFont != nullptr &&
         gState.api.destroyFont != nullptr && gState.api.addFace != nullptr &&
         gState.api.measureString != nullptr && gState.api.drawString != nullptr;
-    const bool imguiAvailable = gState.api.createTexture != nullptr &&
+    const bool textureAvailable = gState.api.createTexture != nullptr &&
         gState.api.destroyTexture != nullptr && gState.api.drawCalls != nullptr;
-    gState.panelEnabled = primitivesAvailable && textAvailable && imguiAvailable;
+    gState.capabilityMask = CapabilityNone;
+    if (primitivesAvailable) {
+        gState.capabilityMask |= CapabilityPrimitives;
+    }
+    if (textAvailable) {
+        gState.capabilityMask |= CapabilityText;
+    }
+    if (gState.api.createTexture != nullptr && gState.api.destroyTexture != nullptr) {
+        gState.capabilityMask |= CapabilityTexture;
+    }
+    if (textureAvailable) {
+        gState.capabilityMask |= CapabilityMesh;
+    }
+    gState.panelEnabled = gState.capabilityMask != CapabilityNone;
     logMessage(std::string("requested=") + preferenceName(gState.preference) +
                " effective=" + (gState.panelEnabled ? "panel" : "opengl") +
+               " capabilities=" + std::to_string(gState.capabilityMask) +
                (gState.panelEnabled ? "" : " reason=required symbol unavailable"));
 }
 
@@ -321,6 +398,36 @@ bool panelDrawing() {
     return gState.drawing;
 }
 
+std::uint32_t capabilities() {
+    return gState.capabilityMask;
+}
+
+bool hasCapability(Capability capability) {
+    return (gState.capabilityMask & static_cast<std::uint32_t>(capability)) != 0;
+}
+
+void registerWindow(XPLMWindowID window) {
+    if (window != nullptr) {
+        auto result = gState.windowStates.try_emplace(window);
+        if (result.second) {
+            result.first->second.generation = gState.nextWindowGeneration++;
+        }
+    }
+}
+
+void unregisterWindow(XPLMWindowID window) {
+    if (window == nullptr) {
+        return;
+    }
+    if (gState.activeWindow == window) {
+        gState.vertices.clear();
+        gState.drawing = false;
+        gState.activeWindow = nullptr;
+        gState.activeWindowGeneration = 0;
+    }
+    gState.windowStates.erase(window);
+}
+
 void disableForSession(const char* reason) {
     if (gState.panelEnabled && !gState.failureLogged) {
         gState.failureLogged = true;
@@ -328,7 +435,12 @@ void disableForSession(const char* reason) {
                    (reason != nullptr ? reason : "unknown failure"));
     }
     gState.panelEnabled = false;
+    gState.capabilityMask = CapabilityNone;
     gState.drawing = false;
+    gState.activeWindow = nullptr;
+    gState.activeWindowGeneration = 0;
+    gState.primitiveActive = false;
+    gState.windowStates.clear();
 }
 
 void configurePanelWindow(XPLMCreateWindow_t& params) {
@@ -341,16 +453,22 @@ void configureOpenGLWindow(XPLMCreateWindow_t& params) {
     params.contentType = xplm_WindowContentTypeOpenGL;
 }
 
-bool beginPanelWindow(XPLMWindowID /*window*/) {
-    if (!gState.panelEnabled) {
+bool beginPanelWindow(XPLMWindowID window) {
+    if (!gState.panelEnabled || window == nullptr || gState.drawing) {
         return false;
     }
+    registerWindow(window);
+    loadWindowState(window);
+    gState.activeWindow = window;
+    gState.activeWindowGeneration = gState.windowStates.at(window).generation;
     gState.drawing = true;
     gState.color[0] = 1.0f;
     gState.color[1] = 1.0f;
     gState.color[2] = 1.0f;
     gState.color[3] = 1.0f;
     gState.lineWidth = 1.0f;
+    gState.primitiveActive = false;
+    gState.primitiveSource = PrimitiveSource::Legacy;
     gState.vertices.clear();
     return true;
 }
@@ -362,7 +480,30 @@ void endPanelWindow() {
     if (!gState.vertices.empty()) {
         gState.vertices.clear();
     }
+    gState.primitiveActive = false;
+    gState.primitiveSource = PrimitiveSource::Legacy;
+    saveActiveWindowState();
     gState.drawing = false;
+    gState.activeWindow = nullptr;
+}
+
+PanelDrawScope::PanelDrawScope(XPLMWindowID window):
+    previousLuaDrawingState_(flywithlua::WeAreNotInDrawingState),
+    active_(beginPanelWindow(window)) {
+    if (active_) {
+        flywithlua::WeAreNotInDrawingState = false;
+    }
+}
+
+PanelDrawScope::~PanelDrawScope() {
+    if (active_) {
+        endPanelWindow();
+    }
+    flywithlua::WeAreNotInDrawingState = previousLuaDrawingState_;
+}
+
+bool PanelDrawScope::active() const {
+    return active_;
 }
 
 void setColor(float red, float green, float blue, float alpha) {
@@ -372,30 +513,42 @@ void setColor(float red, float green, float blue, float alpha) {
     gState.color[3] = alpha;
 }
 
+std::uint32_t currentColor() {
+    return packedColor();
+}
+
 void setLineWidth(float width) {
     gState.lineWidth = std::max(1.0f, width);
 }
 
-void beginPrimitive(LegacyPrimitiveMode mode) {
-    if (!gState.drawing) {
-        return;
+bool beginPrimitive(LegacyPrimitiveMode mode, PrimitiveSource source) {
+    if (!gState.drawing || (gState.primitiveActive && gState.primitiveSource != source)) {
+        return false;
     }
     gState.primitiveMode = mode;
+    gState.primitiveActive = true;
+    gState.primitiveSource = source;
     gState.vertices.clear();
+    return true;
 }
 
-void vertex(float x, float y) {
-    if (gState.drawing) {
-        gState.vertices.push_back({x, y});
+bool vertex(float x, float y, PrimitiveSource source) {
+    if (!gState.drawing || (gState.primitiveActive && gState.primitiveSource != source)) {
+        return false;
     }
+    gState.vertices.push_back({x, y});
+    return true;
 }
 
-void endPrimitive() {
-    if (!gState.drawing) {
-        return;
+bool endPrimitive(PrimitiveSource source) {
+    if (!gState.drawing || !gState.primitiveActive || gState.primitiveSource != source) {
+        return false;
     }
     drawCapturedPrimitive();
     gState.vertices.clear();
+    gState.primitiveActive = false;
+    gState.primitiveSource = PrimitiveSource::Legacy;
+    return true;
 }
 
 void drawFilledRect(float x1, float y1, float x2, float y2) {
@@ -493,7 +646,7 @@ int drawLegacyTextCurrentColor(int x, int y, const char* text, const char* fontN
 }
 
 void* createTexture(const unsigned char* rgbaImage, int width, int height) {
-    if (!gState.panelEnabled || gState.api.createTexture == nullptr ||
+    if (!hasCapability(CapabilityTexture) || gState.api.createTexture == nullptr ||
         rgbaImage == nullptr || width <= 0 || height <= 0) {
         return nullptr;
     }
@@ -507,7 +660,8 @@ void destroyTexture(void* texture) {
 }
 
 bool drawCalls(const XPLMMesh_t& mesh, const std::vector<DrawCall>& calls) {
-    if (!gState.drawing || gState.api.drawCalls == nullptr || calls.empty()) {
+    if (!gState.drawing || !hasCapability(CapabilityMesh) ||
+        gState.api.drawCalls == nullptr || calls.empty()) {
         return false;
     }
     std::vector<XPLMDrawCall_t> sdkCalls;

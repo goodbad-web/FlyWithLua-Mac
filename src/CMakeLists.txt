@@ -105,6 +105,7 @@ add_compile_options(-O3 -fPIC)
 # FIXME: Split this into individual targets.
 list(APPEND FLYWITHLUA_SRCS FlyWithLua.cpp ../cmake/FlyWithLuaSwiftBridgeStubs.cpp
     Graphics/PanelGraphicsBackend.cpp
+    Graphics/PanelGraphicsLua.cpp
     Native3jFPS12/ThreeJFPSControllerCore.cpp Native3jFPS12/ThreeJFPSNative.cpp
     third_party/iniReader/inireader.cpp third_party/iniReader/readinifile.cpp)
 list(APPEND FLYWITHLUA_SRCS FloatingWindows/FLWIntegration.cpp FloatingWindows/ImGUIIntegration.cpp FloatingWindows/FloatingWindow.cpp)

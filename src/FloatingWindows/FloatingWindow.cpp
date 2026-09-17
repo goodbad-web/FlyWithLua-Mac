@@ -34,11 +34,13 @@ void multMatrixVec4f(GLfloat dst[4], const GLfloat m[16], const GLfloat v[4]) {
 
 namespace flwnd {
 
-FloatingWindow::FloatingWindow(int winWidth, int winHeight, int winDecoration, bool usePanelGraphics):
+FloatingWindow::FloatingWindow(int winWidth, int winHeight, int winDecoration,
+                               bool usePanelGraphics, std::uint64_t ownerScriptId):
     width(winWidth),
     height(winHeight),
     decoration(winDecoration),
-    panelGraphics(usePanelGraphics)
+    panelGraphics(usePanelGraphics),
+    ownerScript(ownerScriptId)
 {
     vrEnabledRef = XPLMFindDataRef("sim/graphics/VR/enabled");
     modeliewMatrixRef = XPLMFindDataRef("sim/graphics/view/modelview_matrix");
@@ -105,6 +107,10 @@ void FloatingWindow::createWindow() {
 
     if (!window) {
         throw std::runtime_error("Couldn't create window");
+    }
+
+    if (panelGraphics) {
+        flywithlua::panel::registerWindow(window);
     }
 
     moveFromOrToVR();
@@ -325,7 +331,14 @@ bool FloatingWindow::isPanelGraphics() const {
     return panelGraphics;
 }
 
+std::uint64_t FloatingWindow::ownerScriptId() const {
+    return ownerScript;
+}
+
 FloatingWindow::~FloatingWindow() {
+    if (panelGraphics) {
+        flywithlua::panel::unregisterWindow(window);
+    }
     XPLMDestroyWindow(window);
 }
 

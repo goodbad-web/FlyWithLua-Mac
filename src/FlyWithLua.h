@@ -2,6 +2,7 @@
 #define _FLYWITHLUA_H_
 
 #include <string>
+#include <cstdint>
 #include <lua.hpp>
 
 // Fmod insperation from Camille Bachmann
@@ -25,19 +26,53 @@ enum ELogType
 
 namespace flywithlua {
 
+using LuaScriptId = std::uint64_t;
+static constexpr LuaScriptId kSystemLuaScriptId = 0;
+
+/** Identifies the script currently executing on the shared Lua VM. */
+LuaScriptId CurrentLuaScriptId();
+bool IsLuaScriptQuarantined(LuaScriptId scriptId);
+bool IsLuaPanelApiAllowed();
+
+/**
+ * Temporarily associates native callback execution with a script.
+ * The Lua VM remains shared; this only provides ownership for callbacks,
+ * diagnostics, and script-owned resources.
+ */
+class LuaScriptScope {
+public:
+    explicit LuaScriptScope(LuaScriptId scriptId);
+    ~LuaScriptScope();
+
+    LuaScriptScope(const LuaScriptScope&) = delete;
+    LuaScriptScope& operator=(const LuaScriptScope&) = delete;
+
+private:
+    LuaScriptId previousScriptId_;
+};
+
+class LuaPanelApiScope {
+public:
+    explicit LuaPanelApiScope(bool allowed);
+    ~LuaPanelApiScope();
+
+    LuaPanelApiScope(const LuaPanelApiScope&) = delete;
+    LuaPanelApiScope& operator=(const LuaPanelApiScope&) = delete;
+
+private:
+    bool previousAllowed_;
+};
+
+/** Report an error without stopping unrelated scripts. */
+void ReportLuaScriptError(LuaScriptId scriptId,
+                          const char* context,
+                          const std::string& message);
+
 void logMsg (ELogType logType, std::string message ); //Teddii: added parameter logType //void logMsg ( std::string message );
 void CopyDataRefsToLua( void );
 void CopyDataRefsToXPlane( void );
 
-/**
- * Log the error message and stop FlyWithLua.
- *
- * This is a very rudimentary error handling function at this time, as it doesn't do anything to interrupt Lua execution
- * if it is called from within Lua code. Hopefully this will improve in future. It is recommended to use this function
- * instead of simply setting LuaIsRunning to false because it would make transition to the new error handling simpler.
- *
- * @param message Message to report.
- */
+/** Log the error and quarantine the currently executing script when known. */
 void panic(const std::string& message);
 
 extern bool LuaIsRunning;                       // Are we working with Lua?

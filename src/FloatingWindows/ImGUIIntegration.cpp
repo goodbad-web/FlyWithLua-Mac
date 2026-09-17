@@ -27,8 +27,10 @@
 
 namespace flwnd {
 
-ImGUIWindow::ImGUIWindow(int width, int height, int decoration):
-    FloatingWindow(width, height, decoration, true)
+ImGUIWindow::ImGUIWindow(int width, int height, int decoration, std::uint64_t ownerScriptId):
+    FloatingWindow(width, height, decoration,
+                   flywithlua::panel::hasCapability(flywithlua::panel::CapabilityMesh),
+                   ownerScriptId)
 {
     imGuiContext = ImGui::CreateContext();
     ImGui::SetCurrentContext(imGuiContext);
@@ -117,8 +119,10 @@ void ImGUIWindow::onDraw() {
         return;
     }
 
-    const bool panelFrame = isPanelGraphics() &&
-        flywithlua::panel::beginPanelWindow(getXWindow());
+    flywithlua::panel::PanelDrawScope panelScope(isPanelGraphics() ? getXWindow() : nullptr);
+    if (isPanelGraphics() && !panelScope.active()) {
+        return;
+    }
     updateMatrices();
     try {
         buildGUI();
@@ -142,9 +146,6 @@ void ImGUIWindow::onDraw() {
     }
 
     FloatingWindow::onDraw();
-    if (panelFrame) {
-        flywithlua::panel::endPanelWindow();
-    }
 }
 
 void ImGUIWindow::buildGUI() {
